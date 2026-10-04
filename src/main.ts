@@ -65,6 +65,10 @@ export default class AgentDispatch extends Plugin {
 
     this.addCommand({ id: 'open-panel', name: 'Open the run panel', callback: () => void this.activatePanel() });
 
+    // A heartbeat on disk: this is how a future session (or a check script) proves the plugin loaded in a
+    // launch it cannot attach to, without needing a debug port.
+    this.writeHeartbeat();
+
     this.addCommand({
       id: 'cancel-all',
       name: 'Cancel every live run',
@@ -150,6 +154,25 @@ export default class AgentDispatch extends Plugin {
 
   private pluginDir(): string {
     return join(this.vaultRoot(), this.app.vault.configDir, 'plugins', 'agent-dispatch');
+  }
+
+  private writeHeartbeat(): void {
+    try {
+      mkdirSync(this.pluginDir(), { recursive: true });
+      writeFileSync(
+        join(this.pluginDir(), 'LOADED.txt'),
+        [
+          `message: agent-dispatch loaded`,
+          `manifestVersion: ${this.manifest.version}`,
+          `loadedAt: ${new Date().toISOString()}`,
+          `electron: ${process.versions.electron ?? 'unknown'}`,
+          `pid: ${process.pid}`,
+          '',
+        ].join('\n'),
+      );
+    } catch (error) {
+      console.error('[agent-dispatch] heartbeat write failed', error);
+    }
   }
 }
 
