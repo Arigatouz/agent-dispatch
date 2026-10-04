@@ -50,9 +50,10 @@ describe('renderRunLog', () => {
     expect(text).toContain('model_mismatch: true');
   });
 
-  it('flags a run that failed as failed', () => {
+  it('flags a run that failed with a run-specific key, leaving the vault status vocabulary intact', () => {
     const text = renderRunLog({ ...record, status: 'error', exitCode: 1, answer: '' });
-    expect(text).toContain('status: error');
+    expect(text).toContain('status: logged');
+    expect(text).toContain('run_status: error');
     expect(text).toContain('exit_code: 1');
   });
 });
@@ -63,7 +64,10 @@ describe('suggestNoteName', () => {
   });
 
   it('strips characters that are illegal in a filename', () => {
-    const name = suggestNoteName({ ...record, model: 'opencode-go/glm-5.3' }, '2026-10-04T19:05:00');
+    const name = suggestNoteName(
+      { ...record, agent: 'opencode', model: 'opencode-go/glm-5.3' },
+      '2026-10-04T19:05:00',
+    );
     expect(name).toBe('2026-10-04-1905-opencode-opencode-go-glm-5.3.md');
     expect(name).not.toContain('/');
   });
