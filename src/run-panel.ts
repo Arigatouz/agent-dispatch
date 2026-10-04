@@ -90,6 +90,12 @@ export class RunPanelView extends ItemView {
     if (run.truncated) meta.push('answer may be truncated');
     card.head.createEl('span', { text: meta.join(' | '), cls: 'ad-run-meta' });
 
+    if (run.errorSignature) {
+      const sig = card.head.createEl('span', { cls: 'ad-run-signature' });
+      sig.createEl('b', { text: `${run.errorSignature.label}: ` });
+      sig.appendText(`${run.errorSignature.evidence} | ${run.errorSignature.action}`);
+    }
+
     // Only the new lines are appended: re-joining the whole buffer on every event chokes on chatty CLIs.
     const start = Math.max(card.rendered, run.lines.length - DOM_LINE_CAP);
     for (let i = start; i < run.lines.length; i += 1) {

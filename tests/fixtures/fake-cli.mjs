@@ -21,8 +21,8 @@ if (!args.includes('--stderr-only')) {
   process.stdout.write('final line no trailing newline');
 }
 
-// --events=claude prints a claude stream-json shaped line plus its result event, so the run manager's
-// event parsing can be exercised without a network round trip.
+// --events=<kind> prints a vendor-shaped event stream, so event parsing and noise handling are exercised
+// without a network round trip.
 const eventsArg = args.find((a) => a.startsWith('--events='));
 if (eventsArg) {
   const kind = eventsArg.split('=')[1];
@@ -30,9 +30,15 @@ if (eventsArg) {
     console.log(JSON.stringify({ type: 'assistant', message: { model: 'claude-haiku-4-5', content: [{ type: 'text', text: 'EVENT-ANSWER' }] } }));
     console.log(JSON.stringify({ type: 'result', subtype: 'success', result: 'EVENT-ANSWER' }));
   } else if (kind === 'codex') {
+    // The real codex --json stream opens with session bookkeeping and ends with the agent message.
+    console.log(JSON.stringify({ type: 'thread.started', thread_id: 't1' }));
+    console.log(JSON.stringify({ type: 'item.completed', item: { type: 'reasoning', text: 'thinking' } }));
     console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'EVENT-ANSWER.' } }));
   } else if (kind === 'opencode') {
     console.log(JSON.stringify({ type: 'text', part: { type: 'text', text: 'EVENT-ANSWER.' } }));
+  } else if (kind === 'none') {
+    // Bookkeeping only: the shape a quota-blocked codex run leaves behind.
+    console.log(JSON.stringify({ type: 'thread.started', thread_id: 't1' }));
   }
 }
 

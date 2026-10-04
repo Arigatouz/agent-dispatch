@@ -33,6 +33,8 @@ export interface AgentSpec {
   tier3Models: string[];
   /** Regexes read against stderr first, then stdout, to learn which model really answered. */
   bannerPatterns: RegExp[];
+  /** True when the CLI emits a machine-readable event stream, so a text-free line is bookkeeping. */
+  eventMode: boolean;
   build: (r: RunRequest) => string[];
 }
 
@@ -47,6 +49,7 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     defaultModel: 'gpt-6-astra',
     tier3Models: ['gpt-6-sol', 'gpt-6.1-sol'],
     bannerPatterns: [/^\s*model:\s*([A-Za-z0-9._-]+)/m],
+    eventMode: true,
     build: (r) => [
       'exec',
       '-m', r.model,
@@ -67,6 +70,7 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     tier3Models: ['claude-opus-5-5'],
     // stream-json puts the model in every assistant event: that is the proof, not the answer text.
     bannerPatterns: [/"model":"([A-Za-z0-9._-]+)"/],
+    eventMode: true,
     build: (r) => [
       '-p',
       '--model', r.model,
@@ -89,6 +93,7 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     defaultModel: 'gemini-3.8-flash-low',
     tier3Models: ['gemini-3.1-pro-high'],
     bannerPatterns: [],
+    eventMode: false,
     // --model must come BEFORE -p: -p consumes the next token as its prompt.
     build: (r) => ['--model', r.model, '-p', r.prompt],
   },
@@ -100,6 +105,7 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     defaultModel: 'opencode-go/glm-5.3',
     tier3Models: ['opencode-go/glm-5.3'],
     bannerPatterns: [/"model":"([A-Za-z0-9._/-]+)"/],
+    eventMode: true,
     build: (r) => ['run', '--model', r.model, '--format', 'json', r.prompt],
   },
 };
@@ -181,5 +187,25 @@ export function parseEvent(id: AgentId, line: string): ParsedEvent | null {
     default:
       // agy has no event mode: the panel shows its plain text.
       return null;
+  }
+}
+
+/**
+ * A short label for an event that carries no text. codex opens every run with session bookkeeping, and
+ * printing that JSON raw turns the panel into noise, so the line becomes "thread.started" instead.
+ */
+export function summariseEvent(id: AgentId, line: string): string | null {
+  const spec = AGENTS[id];
+  if (!spec?.eventMode) return null;
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const event = JSON.parse(trimmed) as Record<string, any>;
+    const type = typeof event.type === 'string' ? event.type : null;
+    if (!type) return null;
+    const itemType = typeof event.item?.type === 'string' ? ` ${event.item.type}` : '';
+    return `${type}${itemType}`;
+  } catch {
+    return null;
   }
 }

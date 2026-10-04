@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS, buildInvocation, readModelBanner, parseEvent } from '../src/agents';
+import { AGENTS, buildInvocation, readModelBanner, parseEvent, summariseEvent } from '../src/agents';
 
 const base = {
   prompt: 'PROBE-77',
@@ -105,5 +105,21 @@ describe('parseEvent: text and model out of each CLI event stream', () => {
   it('returns null for a line that is not an event, and for a CLI with no event mode', () => {
     expect(parseEvent('claude', 'plain text')).toBeNull();
     expect(parseEvent('agy', '{"type":"assistant"}')).toBeNull();
+  });
+});
+
+describe('summariseEvent: event noise gets a label, never a JSON dump', () => {
+  it('labels a bookkeeping event', () => {
+    expect(summariseEvent('codex', JSON.stringify({ type: 'thread.started', thread_id: 't1' }))).toBe('thread.started');
+  });
+
+  it('labels an item event with its item type', () => {
+    const line = JSON.stringify({ type: 'item.completed', item: { type: 'reasoning', text: 'x' } });
+    expect(summariseEvent('codex', line)).toBe('item.completed reasoning');
+  });
+
+  it('returns null for a non-event line and for a CLI with no event mode', () => {
+    expect(summariseEvent('codex', 'plain text')).toBeNull();
+    expect(summariseEvent('agy', '{"type":"thread.started"}')).toBeNull();
   });
 });

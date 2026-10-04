@@ -128,3 +128,12 @@
   gap: 8px;
   margin-top: 12px;
 }
+
+.ad-run-signature {
+  flex-basis: 100%;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-error);
+  border-left: 2px solid var(--text-error);
+  padding-left: 6px;
+}

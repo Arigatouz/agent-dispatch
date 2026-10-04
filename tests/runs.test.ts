@@ -86,6 +86,24 @@ describe('RunManager', () => {
     expect(result.reportedModel).toBe('claude-haiku-4-5');
   });
 
+  it('labels codex bookkeeping events instead of dumping raw JSON into the panel', async () => {
+    const { manager } = makeManager(['--events=codex']);
+    const run = manager.start('codex', 'gpt-6-astra', 'P');
+    const result = await run.done;
+    expect(result.answer).toBe('EVENT-ANSWER.');
+    expect(run.lines).toContain('event: thread.started');
+    expect(run.lines.join('\n')).not.toContain('"thread_id"');
+  });
+
+  it('keeps an event-mode answer empty when only bookkeeping arrives, so a quota block is not read as an answer', async () => {
+    const { manager } = makeManager(['--events=none', '--exit=1']);
+    const run = manager.start('codex', 'gpt-6-astra', 'P');
+    const result = await run.done;
+    expect(result.answer).toBe('');
+    expect(result.status).toBe('error');
+    expect(run.lines).toContain('event: thread.started');
+  });
+
   it('marks a cancelled run as cancelled and still writes a record', async () => {
     const { manager, written } = makeManager(['--hang']);
     const run = manager.start('codex', 'gpt-6-astra', 'P');

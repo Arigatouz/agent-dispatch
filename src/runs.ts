@@ -1,5 +1,6 @@
-import { AGENTS, buildInvocation, parseEvent, readModelBanner, type AgentId, type Sandbox } from './agents';
+import { AGENTS, buildInvocation, parseEvent, readModelBanner, summariseEvent, type AgentId, type Sandbox } from './agents';
 import { runAgent, type RunHandle, type RunOptions, type RunResult } from './runner';
+import { detectSignature, type DetectedSignature } from './signatures';
 import {
   renderRunJson,
   renderRunLog,
@@ -20,6 +21,8 @@ export interface LiveRun {
   stderrTail: string[];
   answer: string;
   reportedModel: string;
+  /** The CLI's own error line when a known failure is recognised, so the card can quote it. */
+  errorSignature: DetectedSignature | null;
   truncated: boolean;
   exitCode: number | null;
   ms: number;
@@ -105,6 +108,7 @@ export class RunManager {
       stderrTail: [],
       answer: '',
       reportedModel: '',
+      errorSignature: null,
       truncated: false,
       exitCode: null,
       ms: 0,
@@ -144,7 +148,10 @@ export class RunManager {
             run.lines.push(event.text);
           }
         } else {
-          run.lines.push(line);
+          const label = summariseEvent(agent, line);
+          // ASCII marker on purpose: the panel output gets copied out, and a label is easier to grep than
+          // a multi-byte bullet.
+          run.lines.push(label ? `event: ${label}` : line);
         }
         this.emit('update', run);
       },
@@ -169,7 +176,9 @@ export class RunManager {
         this.opts.readLastMessage && !result.timedOut && !result.cancelled
           ? this.opts.readLastMessage(lastMessageFile)
           : null;
-      const answer = (fromFile ?? (parsedText.trim() || fullStdout.trim())).trim();
+      // An event-mode CLI that produced no text event produced no answer: dumping its bookkeeping JSON as
+      // the answer is how a quota block gets read as a result.
+      const answer = (fromFile ?? (parsedText.trim() || (AGENTS[agent].eventMode ? '' : fullStdout.trim()))).trim();
 
       run.answer = answer;
       run.ms = result.ms;
@@ -177,6 +186,7 @@ export class RunManager {
       run.timedOut = result.timedOut;
       run.cancelled = result.cancelled;
       run.reportedModel = readModelBanner(agent, fullStderr, fullStdout);
+      run.errorSignature = detectSignature(fullStderr, fullStdout, fromFile ?? undefined);
       run.truncated = answer.length > 0 && !SENTENCE_END.test(answer);
       run.status = result.cancelled
         ? 'cancelled'
