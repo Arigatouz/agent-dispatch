@@ -10,7 +10,9 @@ export interface Signature {
 
 export const SIGNATURES: Signature[] = [
   {
-    pattern: /You'?ve hit your usage limit[^\n]*/i,
+    // Apostrophe-agnostic on purpose: codex prints a typographic apostrophe in "You’ve hit your usage
+    // limit", so a pattern anchored on the straight quote silently missed the real line.
+    pattern: /hit your usage limit[^\n]*/i,
     label: 'codex quota',
     action: 'Wall-clock quota. Read the retry time in the same line, or run another agent.',
   },
@@ -41,6 +43,21 @@ export interface DetectedSignature {
   action: string;
   /** The CLI's own line, quoted so the UI can show what was said rather than a paraphrase. */
   evidence: string;
+}
+
+/** codex chats with unreachable MCP servers on every run. That is log noise, not the answer's company. */
+const STDERR_NOISE = [/rmcp::/i, /Transport channel closed/i, /AuthRequired/i, /oauth/i, /mcp_servers/i];
+
+/**
+ * The tail of stderr the card shows: noise removed, each line capped, newest last. A run that failed for a
+ * real reason still shows that reason; a run whose only stderr is MCP chatter shows nothing extra.
+ */
+export function cleanStderr(lines: string[], maxLines = 3, maxChars = 200): string[] {
+  return lines
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !STDERR_NOISE.some((pattern) => pattern.test(line)))
+    .slice(-maxLines)
+    .map((line) => (line.length > maxChars ? `${line.slice(0, maxChars)}…` : line));
 }
 
 /** First matching signature wins, and the evidence is the CLI's own text, not a paraphrase. */

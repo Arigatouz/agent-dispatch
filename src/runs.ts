@@ -1,6 +1,6 @@
 import { AGENTS, buildInvocation, parseEvent, readModelBanner, summariseEvent, type AgentId, type Sandbox } from './agents';
 import { runAgent, type RunHandle, type RunOptions, type RunResult } from './runner';
-import { detectSignature, type DetectedSignature } from './signatures';
+import { detectSignature, cleanStderr, type DetectedSignature } from './signatures';
 import {
   renderRunJson,
   renderRunLog,
@@ -60,6 +60,12 @@ export interface RunManagerOptions {
 const DEFAULT_TIMEOUT_MS = 300000;
 const STDERR_TAIL_LINES = 40;
 const SENTENCE_END = /[.!?:;)\]}"'`]$/;
+/** A short answer without a full stop is normal ("E2E3-OC"). A long one that stops mid-sentence is not. */
+const TRUNCATION_MIN_CHARS = 240;
+
+export function isProbablyTruncated(answer: string): boolean {
+  return answer.trim().length > TRUNCATION_MIN_CHARS && !SENTENCE_END.test(answer.trim());
+}
 
 function localDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -187,7 +193,7 @@ export class RunManager {
       run.cancelled = result.cancelled;
       run.reportedModel = readModelBanner(agent, fullStderr, fullStdout);
       run.errorSignature = detectSignature(fullStderr, fullStdout, fromFile ?? undefined);
-      run.truncated = answer.length > 0 && !SENTENCE_END.test(answer);
+      run.truncated = isProbablyTruncated(answer);
       run.status = result.cancelled
         ? 'cancelled'
         : result.timedOut

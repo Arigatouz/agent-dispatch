@@ -1,6 +1,7 @@
 import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import type AgentDispatch from './main';
 import type { LiveRun } from './runs';
+import { cleanStderr } from './signatures';
 
 export const VIEW_TYPE_RUN_PANEL = 'agent-dispatch-panel';
 
@@ -105,7 +106,7 @@ export class RunPanelView extends ItemView {
     card.pre.scrollTop = card.pre.scrollHeight;
 
     if (run.status === 'error' && run.stderrTail.length) {
-      const lastError = run.stderrTail.filter((l) => l.trim().length > 0).slice(-3).join('\n');
+      const lastError = cleanStderr(run.stderrTail).join('\n');
       if (lastError) card.pre.appendText(`\n${lastError}\n`);
     }
 

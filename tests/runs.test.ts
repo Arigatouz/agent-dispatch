@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'path';
 import { runAgent } from '../src/runner';
-import { RunManager, type RunEvent } from '../src/runs';
+import { RunManager, isProbablyTruncated, type RunEvent } from '../src/runs';
 
 /** Absolute, because the manager runs agents in its own cwd and a relative path would not resolve there. */
 const FAKE_CLI = resolve('tests/fixtures/fake-cli.mjs');
@@ -33,6 +33,20 @@ function makeManager(behaviour: string[] = [], overrides: Partial<ConstructorPar
   manager.subscribe((event) => events.push(event));
   return { manager, written, events };
 }
+
+describe('isProbablyTruncated', () => {
+  it('leaves a short token answer alone, because that is a normal answer', () => {
+    expect(isProbablyTruncated('E2E3-OC')).toBe(false);
+  });
+
+  it('flags a long answer that stops mid-sentence', () => {
+    expect(isProbablyTruncated('word '.repeat(80).trim())).toBe(true);
+  });
+
+  it('leaves a long answer that ends properly', () => {
+    expect(isProbablyTruncated(`${'word '.repeat(80).trim()}.`)).toBe(false);
+  });
+});
 
 describe('RunManager', () => {
   it('starts a run and lists it as running', () => {

@@ -15,15 +15,18 @@ const bannerModel = bannerIndex >= 0 ? args[bannerIndex].split('=')[1] : 'fake-m
 console.error(`model: ${bannerModel}`);
 console.error('reasoning effort: high');
 
+const eventsArg = args.find((a) => a.startsWith('--events='));
+
 if (!args.includes('--stderr-only')) {
   console.log('line one');
   process.stdout.write('line two\n');
-  process.stdout.write('final line no trailing newline');
+  // The unterminated line is only safe when nothing follows it: printing an event straight after it would
+  // glue the two together and neither would parse.
+  if (!eventsArg) process.stdout.write('final line no trailing newline');
 }
 
 // --events=<kind> prints a vendor-shaped event stream, so event parsing and noise handling are exercised
 // without a network round trip.
-const eventsArg = args.find((a) => a.startsWith('--events='));
 if (eventsArg) {
   const kind = eventsArg.split('=')[1];
   if (kind === 'claude') {
