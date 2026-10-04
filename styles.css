@@ -1,0 +1,130 @@
+/* Agent Dispatch panel. Reads Obsidian's own variables, so it follows whatever theme the vault uses. */
+
+.agent-dispatch-panel .ad-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.agent-dispatch-panel .ad-bar-title {
+  flex: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.agent-dispatch-panel .ad-list {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ad-run {
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary-alt);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ad-run-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ad-run-title {
+  font-weight: 700;
+  font-size: var(--font-ui-small);
+}
+
+.ad-run-meta {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.ad-status {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.ad-status-running {
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+.ad-status-done {
+  color: var(--text-success);
+  border-color: var(--text-success);
+}
+.ad-status-error,
+.ad-status-timeout {
+  color: var(--text-error);
+  border-color: var(--text-error);
+}
+.ad-status-cancelled {
+  color: var(--text-warning);
+  border-color: var(--text-warning);
+}
+
+.ad-output {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code-background);
+  border-left: 2px solid var(--background-modifier-border);
+  padding: 8px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-normal);
+}
+
+.ad-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-dispatch-modal .agent-dispatch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.agent-dispatch-modal .agent-dispatch-label {
+  width: 70px;
+  padding-top: 4px;
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.agent-dispatch-modal select,
+.agent-dispatch-modal textarea {
+  flex: 1;
+  font-family: var(--font-monospace);
+}
+
+.agent-dispatch-modal .agent-dispatch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}

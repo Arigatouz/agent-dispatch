@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
-import type { ChildProcessWithoutNullStreams } from 'child_process';
+import type { ChildProcessByStdio } from 'child_process';
+import type { Readable } from 'stream';
+import { existsSync } from 'fs';
 
 export interface RunOptions {
   binary: string;
@@ -54,6 +56,26 @@ const SIGKILL_GRACE_MS = 2000;
  */
 export function runAgent(o: RunOptions): RunHandle {
   const started = Date.now();
+  // A configured working directory can be deleted between runs (that is what a moved vault looks like).
+  // Spawning into a missing cwd produced a child that never spawned and a promise that never settled, so
+  // the directory is checked first and the process cwd is the fallback.
+  const cwd = o.cwd && existsSync(o.cwd) ? o.cwd : process.cwd();
+
+  let child: ChildProcessByStdio<null, Readable, Readable>;
+  try {
+    child = spawn(o.binary, [...(o.baseArgs ?? []), ...o.args], {
+      shell: false,
+      cwd,
+      env: { ...process.env, PATH: o.env?.PATH ?? DISPATCH_PATH },
+      // stdin is /dev/null, not a pipe. codex prints "Reading additional input from stdin..." and waits
+      // for it, and claude warns about missing stdin data; an open pipe keeps both of them hanging until
+      // the timeout, which is what the first live run through the plugin did.
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }) as ChildProcessByStdio<null, Readable, Readable>;
+  } catch (error) {
+    return failedHandle(`spawn error: ${(error as Error).message}`, Date.now() - started);
+  }
+
   let timedOut = false;
   let cancelled = false;
   let settled = false;
@@ -63,12 +85,6 @@ export function runAgent(o: RunOptions): RunHandle {
   let errTail = '';
   let killTimer: NodeJS.Timeout | undefined;
   let killEscalation: NodeJS.Timeout | undefined;
-
-  const child: ChildProcessWithoutNullStreams = spawn(o.binary, [...(o.baseArgs ?? []), ...o.args], {
-    shell: false,
-    cwd: o.cwd,
-    env: { ...process.env, PATH: o.env?.PATH ?? DISPATCH_PATH },
-  });
 
   const emit = (chunk: Buffer, which: 'out' | 'err') => {
     const text = chunk.toString();
@@ -138,4 +154,18 @@ export function runAgent(o: RunOptions): RunHandle {
   }) as RunHandle;
 
   return handle;
+}
+
+/** A result for a run that never started, shaped exactly like a real one so callers need no special case. */
+function failedHandle(message: string, ms: number): RunHandle {
+  const result: RunResult = {
+    exitCode: null,
+    stdout: '',
+    stderr: message,
+    ms,
+    timedOut: false,
+    cancelled: false,
+  };
+  const promise = Promise.resolve(result);
+  return Object.assign(promise, { done: promise, pid: undefined, cancel: () => {} }) as RunHandle;
 }

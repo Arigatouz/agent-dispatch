@@ -21,10 +21,41 @@ if (!args.includes('--stderr-only')) {
   process.stdout.write('final line no trailing newline');
 }
 
+// --events=claude prints a claude stream-json shaped line plus its result event, so the run manager's
+// event parsing can be exercised without a network round trip.
+const eventsArg = args.find((a) => a.startsWith('--events='));
+if (eventsArg) {
+  const kind = eventsArg.split('=')[1];
+  if (kind === 'claude') {
+    console.log(JSON.stringify({ type: 'assistant', message: { model: 'claude-haiku-4-5', content: [{ type: 'text', text: 'EVENT-ANSWER' }] } }));
+    console.log(JSON.stringify({ type: 'result', subtype: 'success', result: 'EVENT-ANSWER' }));
+  } else if (kind === 'codex') {
+    console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'EVENT-ANSWER.' } }));
+  } else if (kind === 'opencode') {
+    console.log(JSON.stringify({ type: 'text', part: { type: 'text', text: 'EVENT-ANSWER.' } }));
+  }
+}
+
 const exitArg = args.find((a) => a.startsWith('--exit='));
 const exitCode = exitArg ? Number(exitArg.split('=')[1]) : 0;
 
-if (args.includes('--hang')) {
+// --wait-stdin models what codex and claude actually do: they probe stdin and wait for it. If the runner
+// hands them an open pipe instead of /dev/null they hang until the timeout, which is exactly the bug this
+// mode exists to catch.
+if (args.includes('--wait-stdin')) {
+  // Wait for stdin to close and DO NOT fall through: with an open pipe this process must hang, exactly
+  // like codex does, or the regression it models is invisible.
+  process.stdin.resume();
+  process.stdin.on('end', () => {
+    console.log('STDIN-CLOSED');
+    process.exit(0);
+  });
+  process.stdin.on('error', () => {
+    console.log('STDIN-CLOSED');
+    process.exit(0);
+  });
+  setInterval(() => {}, 1000);
+} else if (args.includes('--hang')) {
   setInterval(() => {}, 1000);
 } else {
   process.exit(exitCode);

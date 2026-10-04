@@ -57,6 +57,26 @@ describe('runAgent', () => {
     expect(res.stderr).toContain('spawn error');
   });
 
+  it('falls back to the process cwd when the configured working directory is gone', async () => {
+    // A deleted vault folder must not hang the run: this exact case left a promise that never settled.
+    const res = await runAgent({
+      binary: node,
+      baseArgs: fake,
+      args: [],
+      cwd: '/definitely/not/here',
+      timeoutMs: 8000,
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain('line one');
+  });
+
+  it('gives the child a closed stdin, because codex and claude wait on an open one', async () => {
+    // Found live: codex printed "Reading additional input from stdin..." and sat there until the timeout.
+    const res = await runAgent({ binary: node, baseArgs: fake, args: ['--wait-stdin'], timeoutMs: 5000 });
+    expect(res.stdout).toContain('STDIN-CLOSED');
+    expect(res.timedOut).toBe(false);
+  });
+
   it('runs two agents at once without mixing their output', async () => {
     const a: string[] = [];
     const b: string[] = [];
