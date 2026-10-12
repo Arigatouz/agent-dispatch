@@ -102,3 +102,22 @@ git push --follow-tags
 ## License
 
 MIT
+
+## How far a run may reach
+
+Three modes, set in Settings, none of which is a bypass. `plan` is the default.
+
+| Mode | Codex | Claude Code | Antigravity | OpenCode |
+|---|---|---|---|---|
+| `plan` | `-s read-only` | `--permission-mode plan` | `--mode plan --sandbox` | own config |
+| `workspace` (contained) | `-s workspace-write -c approval_policy=never` | `--permission-mode acceptEdits --permission-prompts none` | `--mode accept-edits --sandbox` | own config, unchanged |
+| `accept-edits` | sandbox from settings | `--permission-mode acceptEdits` | `--mode accept-edits --sandbox` | own config |
+
+Each `workspace` line was verified against the installed CLI: agy, claude and codex each answered a real
+directory listing with exit 0 in this vault. OpenCode has no scoped flag, so `workspace` leaves it alone.
+
+**Bypass flags are refused.** With **Allow bypass flags in extra args** off (the default), a run whose extra
+args contain `--dangerously-*`, `--yolo`, `--auto` or `bypassPermissions` is stopped before anything is
+spawned, and the refusal is recorded as a run that names the flag. The flags exist if you decide you want
+them; nothing in the plugin adds them for you.
+
