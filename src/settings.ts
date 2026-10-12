@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import { AGENTS, AGENT_IDS, resolveBinary, type AgentId, type AgentMode, type Sandbox } from './agents';
+import type { AgentPosture } from './posture';
 import type AgentDispatch from './main';
 
 export interface DispatchSettings {
@@ -135,13 +136,37 @@ export class AgentDispatchSettingTab extends PluginSettingTab {
         .setName(`Extra args: ${AGENTS[id].label}`)
         .addText((text) =>
           text
-            .setPlaceholder('e.g. --dangerously-skip-permissions')
+            .setPlaceholder(
+              {
+                codex: 'e.g. -c model="o3"',
+                claude: 'e.g. --add-dir ../shared',
+                agy: 'e.g. --print-timeout 600',
+                opencode: '(none needed)',
+              }[id] ?? '(none needed)',
+            )
             .setValue(this.plugin.settings.extraArgs[id] ?? '')
             .onChange(async (value) => {
               this.plugin.settings.extraArgs[id] = value;
               await this.plugin.saveSettings();
             }),
         );
+    }
+
+    new Setting(containerEl)
+      .setName('Agent posture on this machine')
+      .setDesc(
+        'Read-only. Each CLI also keeps its own global permission config, which this panel neither sets ' +
+          'nor can override: agy has a permission preset and global grants, claude a scoped allow list, ' +
+          'codex an approval mode. When one of them is wider than the mode above, the run obeys the wider ' +
+          'one, so this is what actually protects you.',
+      )
+      .setHeading();
+
+    for (const posture of this.plugin.posture()) {
+      const setting = new Setting(containerEl)
+        .setName(`${AGENTS[posture.agent].label}: ${posture.verdict}`)
+        .setDesc(posture.evidence.join(' · ') || 'no evidence');
+      setting.settingEl.addClass(`agent-dispatch-posture-${posture.verdict}`);
     }
 
     new Setting(containerEl)

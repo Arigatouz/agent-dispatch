@@ -2,6 +2,7 @@ import { FileSystemAdapter, MarkdownView, Notice, Plugin } from 'obsidian';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { AGENTS, resolveBinary, type AgentId } from './agents';
+import { inspectAllPostures, postureWarnings, type AgentPosture } from './posture';
 import { FireModal, type FireModalOptions } from './fire-modal';
 import { suggestNoteName } from './log';
 import { RunPanelView, VIEW_TYPE_RUN_PANEL } from './run-panel';
@@ -19,6 +20,15 @@ import {
 export default class AgentDispatch extends Plugin {
   settings!: DispatchSettings;
   runs!: RunManager;
+
+  /**
+   * Every CLI also keeps a global permission config, which the panel neither sets nor can override. Read
+   * it and say so on load rather than letting a "contained" mode imply containment it does not have.
+   */
+  posture(): AgentPosture[] {
+    const home = process.env.HOME ?? '';
+    return inspectAllPostures(home, (absolute) => (existsSync(absolute) ? readFileSync(absolute, 'utf8') : null));
+  }
 
   async onload(): Promise<void> {
     const vaultRoot = this.vaultRoot();
@@ -46,6 +56,15 @@ export default class AgentDispatch extends Plugin {
     this.registerView(VIEW_TYPE_RUN_PANEL, (leaf) => new RunPanelView(leaf, this));
     this.addRibbonIcon('terminal', 'Agent Dispatch', () => void this.activatePanel());
     this.addSettingTab(new AgentDispatchSettingTab(this.app, this));
+
+    const warnings = postureWarnings(this.posture());
+    if (warnings.length > 0) {
+      new Notice(
+        `Agent Dispatch: ${warnings.length} agent(s) have a global permission config wider than the ` +
+          `panel's mode. See Settings → Agent Dispatch → Agent posture.\n${warnings[0]}`,
+        10000,
+      );
+    }
 
     this.addCommand({ id: 'fire', name: 'Fire request at an agent', callback: () => this.openFireModal() });
 
