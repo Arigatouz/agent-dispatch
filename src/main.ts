@@ -1,7 +1,7 @@
 import { FileSystemAdapter, MarkdownView, Notice, Plugin } from 'obsidian';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { AGENTS, type AgentId } from './agents';
+import { AGENTS, resolveBinary, type AgentId } from './agents';
 import { FireModal, type FireModalOptions } from './fire-modal';
 import { suggestNoteName } from './log';
 import { RunPanelView, VIEW_TYPE_RUN_PANEL } from './run-panel';
@@ -26,7 +26,7 @@ export default class AgentDispatch extends Plugin {
       cwd: this.settings.workingDirectory,
       timeoutMs: this.settings.timeoutSeconds * 1000,
       sandbox: this.settings.sandbox,
-      binaryFor: (agent: AgentId) => this.settings.binaryPaths[agent] ?? AGENTS[agent].binary,
+      binaryFor: (agent: AgentId) => this.settings.binaryPaths[agent] ?? resolveBinary(agent),
       lastMessagePathFor: (id) => join(this.pluginDir(), 'runs', `last-${id}.txt`),
       readLastMessage: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null),
       writeLog: async (record, json) => {
@@ -198,6 +198,7 @@ function toRecord(run: LiveRun, cwd: string, created: string) {
     cancelled: run.cancelled,
     truncated: run.truncated,
     cwd,
+    permission: AGENTS[run.agent].permission.note,
     created,
   };
 }

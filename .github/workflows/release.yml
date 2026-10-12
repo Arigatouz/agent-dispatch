@@ -1,0 +1,51 @@
+name: release
+
+# A tag builds the plugin and attaches the three files an Obsidian install needs, so the release is
+# directly installable (BRAT, a manual download, or `vault-forge plugin install --from-github`).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm install
+      - name: Type check and test
+        run: |
+          npx tsc -noEmit -skipLibCheck
+          npx vitest run
+      - name: Build the bundle
+        run: npm run build
+
+      - name: Verify the build produced the install set
+        run: |
+          set -e
+          for file in manifest.json main.js styles.css; do
+            test -f "$file" || { echo "missing $file"; exit 1; }
+          done
+          node -e "const m=require('./manifest.json'); for (const k of ['id','name','version','minAppVersion','isDesktopOnly']) if (!(k in m)) { console.error('manifest missing '+k); process.exit(1); } console.log('manifest ok:', m.id, m.version)"
+
+      - name: Publish the release with install assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          tag="${GITHUB_REF_NAME}"
+          name="$(node -p "require('./manifest.json').name") $(node -p "require('./manifest.json').version")"
+          gh release create "$tag" manifest.json main.js styles.css \
+            --title "$name" \
+            --notes "Install: download \`manifest.json\`, \`main.js\` and \`styles.css\` into \`<vault>/.obsidian/plugins/agent-dispatch/\`, or run \`vault-forge plugin install --from-github ${{ github.repository }}\`." \
+            --verify-tag || gh release upload "$tag" manifest.json main.js styles.css --clobber
+          gh release view "$tag" --json assets --jq '.assets[].name'

@@ -18,6 +18,8 @@ export interface RunRecord {
   cancelled: boolean;
   truncated: boolean;
   cwd: string;
+  /** One line on what actually constrained this run, taken from the agent's declared posture. */
+  permission: string;
   /** YYYY-MM-DD, the vault's date format. */
   created: string;
 }
@@ -39,6 +41,8 @@ export function renderRunLog(r: RunRecord): string {
     `model: ${r.model}`,
     ...(reported ? [`reported_model: ${reported}`] : []),
     ...(mismatch ? ['model_mismatch: true'] : []),
+    // Quoted, because a posture note can contain a colon and would otherwise corrupt the frontmatter.
+    `permission: "${r.permission.replace(/"/g, "'")}"`,
     `tags: [${r.agent}, agent-run]`,
     `created: ${r.created}`,
     `updated: ${r.created}`,

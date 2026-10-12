@@ -217,6 +217,7 @@ export class RunManager {
           cancelled: run.cancelled,
           truncated: run.truncated,
           cwd: this.opts.cwd,
+          permission: AGENTS[agent].permission.note,
           created: localDate((this.opts.now ?? (() => new Date()))()),
         };
         try {
@@ -252,6 +253,7 @@ export class RunManager {
       cancelled: run.cancelled,
       truncated: run.truncated,
       cwd: this.opts.cwd,
+      permission: AGENTS[run.agent].permission.note,
       created: localDate((this.opts.now ?? (() => new Date()))()),
     });
   }

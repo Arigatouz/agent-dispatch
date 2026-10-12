@@ -2,6 +2,8 @@ import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
 import type { Readable } from 'stream';
 import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
 export interface RunOptions {
   binary: string;
@@ -37,7 +39,7 @@ export interface RunHandle extends Promise<RunResult> {
  * works in every terminal. Absolute binaries plus this PATH is the fix.
  */
 export const DISPATCH_PATH = [
-  '/Users/alig/.local/bin',
+  join(homedir(), '.local', 'bin'),
   '/opt/homebrew/bin',
   '/opt/homebrew/sbin',
   '/usr/local/bin',
