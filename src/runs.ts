@@ -25,6 +25,9 @@ export interface LiveRun {
   answer: string;
   /** True when nothing came back and the answer is the CLI's own explanation instead. */
   emptyAnswer: boolean;
+  /** The posture this run actually had, derived from the mode. The card used a static string before, so a
+   *  workspace run could be labelled plan mode. */
+  permission: string;
   reportedModel: string;
   /** The CLI's own error line when a known failure is recognised, so the card can quote it. */
   errorSignature: DetectedSignature | null;
@@ -125,6 +128,7 @@ export class RunManager {
       stderrTail: [],
       answer: '',
       emptyAnswer: false,
+      permission: permissionNote(agent, this.opts.mode ?? 'plan'),
       reportedModel: '',
       errorSignature: null,
       truncated: false,
@@ -172,7 +176,7 @@ export class RunManager {
             cancelled: false,
             truncated: false,
             cwd: this.opts.cwd,
-            permission: permissionNote(agent, this.opts.mode ?? 'plan'),
+            permission: run.permission,
             created: localDate((this.opts.now ?? (() => new Date()))()),
           };
           try {
@@ -291,7 +295,7 @@ export class RunManager {
           cancelled: run.cancelled,
           truncated: run.truncated,
           cwd: this.opts.cwd,
-          permission: permissionNote(agent, this.opts.mode ?? 'plan'),
+          permission: run.permission,
           created: localDate((this.opts.now ?? (() => new Date()))()),
         };
         try {
@@ -327,7 +331,7 @@ export class RunManager {
       cancelled: run.cancelled,
       truncated: run.truncated,
       cwd: this.opts.cwd,
-      permission: permissionNote(run.agent, this.opts.mode ?? 'plan'),
+      permission: run.permission,
       created: localDate((this.opts.now ?? (() => new Date()))()),
     });
   }

@@ -264,3 +264,18 @@ describe('summariseEvent: event noise gets a label, never a JSON dump', () => {
     expect(summariseEvent('codex', '{"type":"item.completed"}')).toBeNull();
   });
 });
+
+describe('the turn budget and the default model', () => {
+  it('defaults claude to the model he asked for, and keeps the older one selectable', () => {
+    expect(AGENTS.claude.defaultModel).toBe('claude-haiku-5-5');
+    expect(AGENTS.claude.models).toContain('claude-haiku-5-5');
+    expect(AGENTS.claude.models).toContain('claude-haiku-4-5');
+  });
+
+  it('puts the turn budget on the argv, so a multi-step task can finish', () => {
+    const args = buildInvocation('claude', { ...base, maxTurns: 12 }).args;
+    expect(args).toEqual(expect.arrayContaining(['--max-turns', '12']));
+    const at = args.indexOf('--max-turns');
+    expect(args[at + 1]).not.toBe('1');
+  });
+});

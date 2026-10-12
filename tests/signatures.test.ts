@@ -55,3 +55,20 @@ describe('cleanStderr', () => {
     expect(out.at(-1)!.endsWith('…')).toBe(true);
   });
 });
+describe('the two failures that used to arrive as empty answers', () => {
+  it('recognises claude refusing a tool it cannot get approval for', () => {
+    const stderr =
+      'Permission for this tool use was denied. It requires approval, and this session has no approval ' +
+      'surface — nobody can answer a permission prompt here — so it was denied automatically.';
+    const found = detectSignature(stderr, '', undefined);
+    expect(found?.label).toBe('tool denied: no approval surface');
+  });
+
+  it('recognises a run that stopped at its turn limit, even from stdout', () => {
+    const stdout = '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":3}';
+    const found = detectSignature('', stdout, undefined);
+    expect(found?.label).toBe('ran out of turns');
+    expect(found?.action).toContain('Max turns per run');
+  });
+});
+

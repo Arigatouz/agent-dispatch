@@ -148,8 +148,8 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     id: 'claude',
     label: 'Claude Code',
     binary: 'claude',
-    models: ['claude-haiku-4-5', 'claude-opus-5-5'],
-    defaultModel: 'claude-haiku-4-5',
+    models: ['claude-haiku-5-5', 'claude-haiku-4-5', 'claude-opus-5-5'],
+    defaultModel: 'claude-haiku-5-5',
     tier3Models: ['claude-opus-5-5'],
     // stream-json puts the model in every assistant event: that is the proof, not the answer text.
     bannerPatterns: [/"model":"([A-Za-z0-9._-]+)"/],

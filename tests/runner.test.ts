@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
-import { runAgent, DISPATCH_PATH } from '../src/runner';
+import { childPath, runAgent, DISPATCH_PATH } from '../src/runner';
 
 /** The fake CLI stands in for a real agent: no network, no quota, predictable output. */
 const node = process.execPath;
@@ -104,5 +104,20 @@ describe('runAgent', () => {
     expect(DISPATCH_PATH).toContain(localBin);
     expect(DISPATCH_PATH).toContain('/opt/homebrew/bin');
     expect(DISPATCH_PATH.split(':')).toEqual(expect.arrayContaining([localBin, '/usr/bin', '/bin']));
+  });
+});
+
+describe('the child environment', () => {
+  it('keeps the inherited PATH after the dispatch directories', () => {
+    const path = childPath('/custom/bin:/usr/bin', undefined);
+    const parts = path.split(':');
+    expect(parts[0]).toContain('.local/bin');
+    expect(parts).toContain('/usr/bin');
+    expect(parts).toContain('/custom/bin');
+    expect(parts.filter((p) => p === '/usr/bin')).toHaveLength(1);
+  });
+
+  it('prefers an explicit override over the default list', () => {
+    expect(childPath('/inherited', '/only/this')).toBe('/only/this:/inherited');
   });
 });

@@ -89,7 +89,7 @@ export class RunPanelView extends ItemView {
     } else if (run.status !== 'running') {
       meta.push('model not reported by this CLI');
     }
-    const posture = AGENTS[run.agent].permission;
+    const posture = { ...AGENTS[run.agent].permission, note: run.permission || AGENTS[run.agent].permission.note };
     // The dropdown is a request, not a guarantee. Say which one this agent actually honours.
     meta.push(posture.enforcesSandbox ? `sandbox: ${posture.note}` : `\u26a0 ${posture.note}`);
     if (run.truncated) meta.push('answer may be truncated');

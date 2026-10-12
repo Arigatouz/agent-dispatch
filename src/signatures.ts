@@ -37,6 +37,24 @@ export const SIGNATURES: Signature[] = [
     action: 'The binary path in settings is wrong, or the file is not executable.',
   },
   {
+    // claude says this when it wants a tool the session may not use. Measured 2026-10-12 in a headless
+    // run: the refusal arrived as a tool_result, so with no text captured the note showed an empty answer.
+    pattern: /permission for this tool use was denied|has no approval surface[^\n]*/i,
+    label: 'tool denied: no approval surface',
+    action:
+      'That tool needs an approval this session cannot ask for. Allow it in the CLI config itself ' +
+      '(claude reads permissions.allow in ~/.claude/settings.json), or pick a mode that does not need it.',
+  },
+  {
+    // claude reports this in its result event when the run used its whole turn budget: the work may be
+    // half done, and the exit code is 1, so it must never be read as a finished task.
+    pattern: /error_max_turns|exceeded the maximum number of turns/i,
+    label: 'ran out of turns',
+    action:
+      'The run stopped at its turn limit, not at the end of the task. Raise Max turns per run in the ' +
+      'plugin settings, then check what it actually finished before trusting the result.',
+  },
+  {
     // Measured on agy: in headless print mode it cannot answer a permission prompt, so it auto-denies
     // its own tool call, prints this on stderr and exits 0 with an empty stdout. Without this signature
     // a blocked run is indistinguishable from a silent success.

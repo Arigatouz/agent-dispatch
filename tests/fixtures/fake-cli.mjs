@@ -51,6 +51,12 @@ if (eventsArg) {
     console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'EVENT-ANSWER.' } }));
   } else if (kind === 'opencode') {
     console.log(JSON.stringify({ type: 'text', part: { type: 'text', text: 'EVENT-ANSWER.' } }));
+  } else if (kind === 'claude-maxturns') {
+    // Measured shape of a claude run that used its whole turn budget: work was done, then the result event
+    // reports the cap, the exit code is 1 and no final text exists.
+    console.log(JSON.stringify({ type: 'assistant', message: { model: 'claude-haiku-4-5', content: [{ type: 'tool_use', name: 'Write', input: {} }] } }));
+    console.log(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'File created successfully at: /tmp/x.md' }] } }));
+    console.log(JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 3, result: null }));
   } else if (kind === 'none') {
     // Bookkeeping only: the shape a quota-blocked codex run leaves behind.
     console.log(JSON.stringify({ type: 'thread.started', thread_id: 't1' }));
@@ -58,7 +64,8 @@ if (eventsArg) {
 }
 
 const exitArg = args.find((a) => a.startsWith('--exit='));
-const exitCode = exitArg ? Number(exitArg.split('=')[1]) : 0;
+// A turn-limit run exits 1 on its own, which is half of why it must not read as a finished task.
+const exitCode = exitArg ? Number(exitArg.split('=')[1]) : eventsArg && eventsArg.includes('claude-maxturns') ? 1 : 0;
 
 // --wait-stdin models what codex and claude actually do: they probe stdin and wait for it. If the runner
 // hands them an open pipe instead of /dev/null they hang until the timeout, which is exactly the bug this

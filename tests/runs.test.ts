@@ -109,6 +109,32 @@ describe('a run that captured nothing is not a success', () => {
   });
 });
 
+describe('a run that stopped at its turn limit', () => {
+  it('says so in the note instead of showing an empty answer', async () => {
+    // The measured failure: claude read, wrote, then reported error_max_turns with exit 1 and no text.
+    const { manager, written } = makeManager(['--events=claude-maxturns']);
+    const run = manager.start('claude', 'claude-haiku-5-5', 'three-step task');
+    await run.done;
+    expect(run.status).toBe('error');
+    expect(run.answer).toContain('ran out of turns');
+    expect(run.answer).toContain('Max turns per run');
+    expect(run.errorSignature?.label).toBe('ran out of turns');
+    expect(String(written[0]?.record.answer)).toContain('ran out of turns');
+  });
+});
+
+describe('the posture shown belongs to the run that happened', () => {
+  it('reports workspace, not the static plan wording', async () => {
+    const { manager, written } = makeManager([], { mode: 'workspace' });
+    const run = manager.start('claude', 'claude-haiku-5-5', 'x');
+    await run.done;
+    expect(run.permission).toContain('acceptEdits');
+    expect(run.permission).not.toContain('writes are refused');
+    expect(String(written[0]?.record.permission)).toBe(run.permission);
+    expect(manager.toMarkdown(run)).toContain(run.permission);
+  });
+});
+
 describe('isProbablyTruncated', () => {
   it('leaves a short token answer alone, because that is a normal answer', () => {
     expect(isProbablyTruncated('E2E3-OC')).toBe(false);

@@ -1,7 +1,7 @@
 {
   "id": "agent-dispatch",
   "name": "Agent Dispatch",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "1.12.0",
   "description": "Fire prompts at local coding-agent CLIs (codex, claude, agy, opencode) and pick the model.",
   "author": "A.G.",

@@ -49,6 +49,25 @@ export const DISPATCH_PATH = [
   '/sbin',
 ].join(':');
 
+/**
+ * The child's PATH. The dispatch directories come first so a plugin-known binary wins, then every
+ * inherited directory is appended if it is not already there. Replacing PATH outright (the old behaviour)
+ * dropped whatever the user's own environment adds, and a CLI's hooks, credential helpers or version-managed
+ * runtimes can live in those directories: one claude run failed with no output because of it.
+ */
+export function childPath(inherited: string | undefined, override?: string): string {
+  const parts = (override ?? DISPATCH_PATH).split(':').filter(Boolean);
+  const seen = new Set(parts);
+  for (const dir of (inherited ?? '').split(':')) {
+    const trimmed = dir.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      parts.push(trimmed);
+      seen.add(trimmed);
+    }
+  }
+  return parts.join(':');
+}
+
 const SIGKILL_GRACE_MS = 2000;
 
 /**
@@ -68,7 +87,7 @@ export function runAgent(o: RunOptions): RunHandle {
     child = spawn(o.binary, [...(o.baseArgs ?? []), ...o.args], {
       shell: false,
       cwd,
-      env: { ...process.env, PATH: o.env?.PATH ?? DISPATCH_PATH },
+      env: { ...process.env, PATH: childPath(process.env.PATH, o.env?.PATH) },
       // stdin is /dev/null, not a pipe. codex prints "Reading additional input from stdin..." and waits
       // for it, and claude warns about missing stdin data; an open pipe keeps both of them hanging until
       // the timeout, which is what the first live run through the plugin did.

@@ -9,6 +9,11 @@ export interface DispatchSettings {
   defaultModels: Record<AgentId, string>;
   sandbox: Sandbox;
   /**
+   * Turns a single run may take. It was never set, so every run got one turn, and claude answered a
+   * three-step task with exit 1 and no text ("error_max_turns"): agentic work needs a budget.
+   */
+  maxTurns: number;
+  /**
    * What the agents may do unattended. plan is read-only; workspace allows writes and commands but keeps
    * each CLI's own containment; accept-edits flips the edit flag without forcing containment.
    */
@@ -40,6 +45,7 @@ export function defaultSettings(vaultPath: string): DispatchSettings {
     models,
     defaultModels,
     sandbox: 'read-only',
+    maxTurns: 12,
     mode: 'plan',
     allowDangerousFlags: false,
     extraArgs: Object.fromEntries(AGENT_IDS.map((id) => [id, ''])) as Record<AgentId, string>,
@@ -61,6 +67,8 @@ export function mergeSettings(stored: Partial<DispatchSettings> | null, vaultPat
   merged.defaultModels = { ...base.defaultModels, ...(stored.defaultModels ?? {}) };
   if (!Number.isFinite(merged.timeoutSeconds) || merged.timeoutSeconds < 5) merged.timeoutSeconds = 300;
   if (merged.sandbox !== 'workspace-write') merged.sandbox = 'read-only';
+  const turns = Number((stored as { maxTurns?: unknown }).maxTurns);
+  merged.maxTurns = Number.isFinite(turns) && turns >= 1 ? Math.min(Math.floor(turns), 100) : base.maxTurns;
   if (merged.mode !== 'accept-edits' && merged.mode !== 'workspace') merged.mode = 'plan';
   merged.allowDangerousFlags = stored.allowDangerousFlags === true;
   merged.extraArgs = { ...base.extraArgs, ...(stored.extraArgs ?? {}) };
@@ -151,6 +159,22 @@ export class AgentDispatchSettingTab extends PluginSettingTab {
             }),
         );
     }
+
+    new Setting(containerEl)
+      .setName('Max turns per run')
+      .setDesc(
+        'How many turns one run may take. Multi-step work needs several: with the old default of 1, claude ' +
+          'read the file, wrote the note and then exited 1 with "error_max_turns" and no answer. 12 suits ' +
+          'most prompt-and-report tasks; raise it for long jobs.',
+      )
+      .addText((text) =>
+        text.setValue(String(this.plugin.settings.maxTurns)).onChange(async (value) => {
+          const parsed = Number(value);
+          if (!Number.isFinite(parsed) || parsed < 1) return;
+          this.plugin.settings.maxTurns = Math.min(Math.floor(parsed), 100);
+          await this.plugin.saveSettings();
+        }),
+      );
 
     new Setting(containerEl)
       .setName('Agent posture on this machine')

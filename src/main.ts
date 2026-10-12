@@ -38,6 +38,7 @@ export default class AgentDispatch extends Plugin {
       cwd: this.settings.workingDirectory,
       timeoutMs: this.settings.timeoutSeconds * 1000,
       sandbox: this.settings.sandbox,
+      maxTurns: this.settings.maxTurns,
       mode: this.settings.mode,
       allowDangerousFlags: this.settings.allowDangerousFlags,
       extraArgsFor: (agent: AgentId) => splitExtraArgs(this.settings.extraArgs[agent]),
