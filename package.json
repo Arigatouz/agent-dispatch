@@ -1,6 +1,6 @@
 {
   "name": "agent-dispatch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fire prompts at local coding-agent CLIs (codex, claude, agy, opencode) with model selection.",
   "main": "main.js",
   "type": "module",

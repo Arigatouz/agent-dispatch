@@ -7,7 +7,9 @@ import { suggestNoteName } from './log';
 import { RunPanelView, VIEW_TYPE_RUN_PANEL } from './run-panel';
 import { runAgent } from './runner';
 import { RunManager, type LiveRun } from './runs';
-import { AgentDispatchSettingTab, mergeSettings, type DispatchSettings } from './settings';
+import {
+  AgentDispatchSettingTab, mergeSettings, splitExtraArgs, type DispatchSettings,
+} from './settings';
 
 /**
  * Agent Dispatch: fire a prompt at a local coding-agent CLI, pick the model, watch it stream, keep the
@@ -26,6 +28,8 @@ export default class AgentDispatch extends Plugin {
       cwd: this.settings.workingDirectory,
       timeoutMs: this.settings.timeoutSeconds * 1000,
       sandbox: this.settings.sandbox,
+      mode: this.settings.mode,
+      extraArgsFor: (agent: AgentId) => splitExtraArgs(this.settings.extraArgs[agent]),
       binaryFor: (agent: AgentId) => this.settings.binaryPaths[agent] ?? resolveBinary(agent),
       lastMessagePathFor: (id) => join(this.pluginDir(), 'runs', `last-${id}.txt`),
       readLastMessage: (path) => (existsSync(path) ? readFileSync(path, 'utf8') : null),

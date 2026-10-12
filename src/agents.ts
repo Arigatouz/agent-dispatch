@@ -33,6 +33,10 @@ export interface RunRequest {
   sandbox: Sandbox;
   maxTurns: number;
   lastMessageFile: string;
+  /** What the CLI is allowed to do unattended. Defaults to plan, which is the safe posture. */
+  mode?: 'plan' | 'accept-edits';
+  /** Escape hatch, appended before the prompt: whatever that CLI documents for unattended runs. */
+  extraArgs?: string[];
 }
 
 export interface Invocation {
@@ -114,6 +118,7 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
       '--skip-git-repo-check',
       '-C', r.cwd,
       '-o', r.lastMessageFile,
+      ...(r.extraArgs ?? []),
       r.prompt,
     ],
   },
@@ -133,11 +138,12 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     permission: { mechanism: 'tool-permissions', enforcesSandbox: true, note: 'plan mode: writes are refused' },
     build: (r) => [
       '-p',
-      '--permission-mode', 'plan',
+      '--permission-mode', r.mode === 'accept-edits' ? 'acceptEdits' : 'plan',
       '--model', r.model,
       '--max-turns', String(r.maxTurns),
       '--output-format', 'stream-json',
       '--verbose',
+      ...(r.extraArgs ?? []),
       r.prompt,
     ],
   },
@@ -159,7 +165,13 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     // of codex's kind, so the mechanism is declared as tool permissions rather than overclaiming.
     permission: { mechanism: 'tool-permissions', enforcesSandbox: true, note: 'plan mode + terminal sandbox' },
     // --model must come BEFORE -p: -p consumes the next token as its prompt.
-    build: (r) => ['--mode', 'plan', '--sandbox', '--model', r.model, '-p', r.prompt],
+    build: (r) => [
+      '--mode', r.mode === 'accept-edits' ? 'accept-edits' : 'plan',
+      '--sandbox',
+      ...(r.extraArgs ?? []),
+      '--model', r.model,
+      '-p', r.prompt,
+    ],
   },
   opencode: {
     id: 'opencode',
@@ -174,11 +186,31 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     // set elsewhere, and --auto is the opposite of what we want. So this agent cannot be pinned from argv
     // and the panel must say so instead of inheriting the read-only label.
     permission: { mechanism: 'none', enforcesSandbox: false, note: 'UNRESTRICTED: no permission flag on run; inherits its configured profile' },
-    build: (r) => ['run', '--model', r.model, '--format', 'json', r.prompt],
+    build: (r) => ['run', '--model', r.model, '--format', 'json', ...(r.extraArgs ?? []), r.prompt],
   },
 };
 
 export const AGENT_IDS = Object.keys(AGENTS) as AgentId[];
+
+/**
+ * What actually protects a run, for the card and the note. The posture depends on the mode, so a note
+ * that says "plan mode: writes are refused" while the run could edit files would be a lie.
+ */
+export function permissionNote(id: AgentId, mode: 'plan' | 'accept-edits' = 'plan'): string {
+  const spec = AGENTS[id];
+  if (!spec || spec.permission.mechanism === 'none') return spec ? spec.permission.note : '';
+  if (id === 'claude') {
+    return mode === 'accept-edits'
+      ? 'acceptEdits: file edits auto-approved, commands still gated'
+      : 'plan mode: writes are refused';
+  }
+  if (id === 'agy') {
+    return mode === 'accept-edits'
+      ? 'accept-edits + terminal sandbox: edits auto-approved'
+      : 'plan mode + terminal sandbox';
+  }
+  return spec.permission.note;
+}
 
 export function buildInvocation(id: AgentId, r: RunRequest): Invocation {
   const spec = AGENTS[id];

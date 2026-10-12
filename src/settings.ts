@@ -7,6 +7,13 @@ export interface DispatchSettings {
   models: Record<AgentId, string[]>;
   defaultModels: Record<AgentId, string>;
   sandbox: Sandbox;
+  /**
+   * What claude and agy may do unattended. plan is the safe default: the CLI refuses writes and, in
+   * headless mode, denies its own tool calls. accept-edits lets them act.
+   */
+  mode: 'plan' | 'accept-edits';
+  /** Per-agent extra argv, appended just before the prompt. Escape hatch for that CLI's own flags. */
+  extraArgs: Record<AgentId, string>;
   timeoutSeconds: number;
   workingDirectory: string;
   runLogsEnabled: boolean;
@@ -30,6 +37,8 @@ export function defaultSettings(vaultPath: string): DispatchSettings {
     models,
     defaultModels,
     sandbox: 'read-only',
+    mode: 'plan',
+    extraArgs: Object.fromEntries(AGENT_IDS.map((id) => [id, ''])) as Record<AgentId, string>,
     timeoutSeconds: 300,
     workingDirectory: vaultPath,
     runLogsEnabled: true,
@@ -48,6 +57,8 @@ export function mergeSettings(stored: Partial<DispatchSettings> | null, vaultPat
   merged.defaultModels = { ...base.defaultModels, ...(stored.defaultModels ?? {}) };
   if (!Number.isFinite(merged.timeoutSeconds) || merged.timeoutSeconds < 5) merged.timeoutSeconds = 300;
   if (merged.sandbox !== 'workspace-write') merged.sandbox = 'read-only';
+  if (merged.mode !== 'accept-edits') merged.mode = 'plan';
+  merged.extraArgs = { ...base.extraArgs, ...(stored.extraArgs ?? {}) };
   if (!merged.workingDirectory) merged.workingDirectory = vaultPath;
   if (!AGENT_IDS.includes(merged.lastAgent)) merged.lastAgent = 'codex';
   for (const id of AGENT_IDS) {
@@ -56,6 +67,14 @@ export function mergeSettings(stored: Partial<DispatchSettings> | null, vaultPat
     if (!merged.models[id].includes(merged.defaultModels[id])) merged.defaultModels[id] = merged.models[id][0]!;
   }
   return merged;
+}
+
+/** Whitespace-split extra argv. Quoting is not supported on purpose: one flag per field. */
+export function splitExtraArgs(text: string | undefined): string[] {
+  return (text ?? '')
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
 }
 
 export class AgentDispatchSettingTab extends PluginSettingTab {
@@ -82,6 +101,46 @@ export class AgentDispatchSettingTab extends PluginSettingTab {
           this.plugin.settings.workingDirectory = value.trim();
           await this.plugin.saveSettings();
         }),
+      );
+
+    new Setting(containerEl)
+      .setName('Extra args per agent')
+      .setDesc(
+        'Appended just before the prompt, one flag per space. Use it for flags that CLI documents for ' +
+          'unattended runs; nothing else in the plugin sets them for you.',
+      )
+      .setHeading();
+
+    for (const id of AGENT_IDS) {
+      new Setting(containerEl)
+        .setName(`Extra args: ${AGENTS[id].label}`)
+        .addText((text) =>
+          text
+            .setPlaceholder('e.g. --dangerously-skip-permissions')
+            .setValue(this.plugin.settings.extraArgs[id] ?? '')
+            .onChange(async (value) => {
+              this.plugin.settings.extraArgs[id] = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
+
+    new Setting(containerEl)
+      .setName('Agent mode')
+      .setDesc(
+        'plan: claude runs --permission-mode plan and agy --mode plan, so they refuse writes and deny ' +
+          'their own tool calls without a terminal to ask. accept-edits: they may change files. This is ' +
+          'the switch to flip when a run comes back blocked.',
+      )
+      .addDropdown((drop) =>
+        drop
+          .addOption('plan', 'plan (safe: no writes)')
+          .addOption('accept-edits', 'accept-edits (agents may write)')
+          .setValue(this.plugin.settings.mode)
+          .onChange(async (value) => {
+            this.plugin.settings.mode = value === 'accept-edits' ? 'accept-edits' : 'plan';
+            await this.plugin.saveSettings();
+          }),
       );
 
     new Setting(containerEl)

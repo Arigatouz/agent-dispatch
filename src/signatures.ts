@@ -36,6 +36,17 @@ export const SIGNATURES: Signature[] = [
     label: 'binary not found',
     action: 'The binary path in settings is wrong, or the file is not executable.',
   },
+  {
+    // Measured on agy: in headless print mode it cannot answer a permission prompt, so it auto-denies
+    // its own tool call, prints this on stderr and exits 0 with an empty stdout. Without this signature
+    // a blocked run is indistinguishable from a silent success.
+    pattern: /no output produced[^\n]*/i,
+    label: 'blocked: tool permission',
+    action:
+      'The CLI needed a permission it cannot ask for without a terminal, so it denied its own tools. ' +
+      'Give it an allow-rule (agy reads permissions.allow in its own settings.json), switch the mode to ' +
+      "accept-edits, or put that CLI's unattended-run flags in the agent's extra args.",
+  },
 ];
 
 export interface DetectedSignature {
@@ -58,6 +69,19 @@ export function cleanStderr(lines: string[], maxLines = 3, maxChars = 200): stri
     .filter((line) => line.length > 0 && !STDERR_NOISE.some((pattern) => pattern.test(line)))
     .slice(-maxLines)
     .map((line) => (line.length > maxChars ? `${line.slice(0, maxChars)}…` : line));
+}
+
+/**
+ * What to write in the Answer block when a run captured nothing. An empty answer plus exit 0 is how a
+ * blocked run gets filed as a success, so the CLI's own last words go in the answer instead of nowhere.
+ */
+export function answerFallback(stderrLines: string[], detected: DetectedSignature | null): string {
+  const lines = cleanStderr(stderrLines, 6, 400);
+  if (!lines.length) return '';
+  const head = detected
+    ? `> **No answer captured: ${detected.label}.** ${detected.action}`
+    : '> **No answer captured.** The CLI wrote nothing to stdout; its last words were:';
+  return [head, '', ...lines.map((line) => `- \`${line}\``)].join('\n');
 }
 
 /** First matching signature wins, and the evidence is the CLI's own text, not a paraphrase. */

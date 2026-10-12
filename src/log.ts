@@ -1,6 +1,6 @@
 import type { AgentId } from './agents';
 
-export type RunStatus = 'queued' | 'running' | 'done' | 'error' | 'timeout' | 'cancelled';
+export type RunStatus = 'queued' | 'running' | 'done' | 'error' | 'timeout' | 'cancelled' | 'blocked';
 
 /** Everything one run leaves behind. Four separate fields on purpose: requested model, the model the CLI
  *  reported, the exit status and whether the answer looks complete. Averaging them into one green tick is

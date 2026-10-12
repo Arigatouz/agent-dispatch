@@ -34,6 +34,45 @@ function makeManager(behaviour: string[] = [], overrides: Partial<ConstructorPar
   return { manager, written, events };
 }
 
+describe('a run that captured nothing is not a success', () => {
+  it('puts the CLI own reason in the answer and marks the run blocked', async () => {
+    const { manager, written } = makeManager(['--blocked']);
+    const run = manager.start('agy', 'gemini-3.8-flash-low', 'do something');
+    await run.done;
+    expect(run.status).toBe('blocked');
+    expect(run.emptyAnswer).toBe(true);
+    expect(run.answer).toContain('no output produced');
+    expect(run.answer).toContain('blocked: tool permission');
+    expect(run.errorSignature?.label).toBe('blocked: tool permission');
+    expect(String(written[0]?.record.answer)).toContain('no output produced');
+  });
+
+  it('leaves a real answer alone and still calls it done', async () => {
+    const { manager } = makeManager([]);
+    const run = manager.start('agy', 'gemini-3.8-flash-low', 'do something');
+    await run.done;
+    expect(run.status).toBe('done');
+    expect(run.emptyAnswer).toBe(false);
+    expect(run.answer).toContain('line one');
+  });
+
+  it('passes the mode and the extra args through to the real argv', async () => {
+    const seen: string[][] = [];
+    const { manager } = makeManager([], {
+      mode: 'accept-edits',
+      extraArgsFor: () => ['--dangerously-skip-permissions'],
+      runner: (options) => {
+        seen.push(options.args);
+        return runAgent({ ...options, binary: process.execPath, baseArgs: [FAKE_CLI] });
+      },
+    });
+    const run = manager.start('agy', 'gemini-3.8-flash-low', 'do something');
+    await run.done;
+    expect(seen[0]).toContain('accept-edits');
+    expect(seen[0]).toContain('--dangerously-skip-permissions');
+  });
+});
+
 describe('isProbablyTruncated', () => {
   it('leaves a short token answer alone, because that is a normal answer', () => {
     expect(isProbablyTruncated('E2E3-OC')).toBe(false);

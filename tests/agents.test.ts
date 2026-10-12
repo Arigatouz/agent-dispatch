@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'fs';
 import {
-  AGENTS, AGENT_IDS, buildInvocation, candidatePaths, parseEvent, readModelBanner,
+  AGENTS, AGENT_IDS, buildInvocation, candidatePaths, parseEvent, permissionNote, readModelBanner,
   resolveBinary, summariseEvent,
 } from '../src/agents';
 
@@ -122,6 +122,35 @@ describe('binary resolution: portable across machines', () => {
   it('buildInvocation uses the resolved binary, not the registry string', () => {
     const inv = buildInvocation('agy', { ...base, model: 'gemini-3.8-flash-low' });
     expect(inv.binary).toBe(resolveBinary('agy'));
+  });
+});
+
+describe('mode and extra args: policy is an input, not a hardcode', () => {
+  it('defaults to plan and takes accept-edits, spelled the way each CLI spells it', () => {
+    expect(buildInvocation('claude', base).args).toContain('plan');
+    expect(buildInvocation('claude', { ...base, mode: 'accept-edits' }).args).toContain('acceptEdits');
+    expect(buildInvocation('agy', base).args).toContain('plan');
+    expect(buildInvocation('agy', { ...base, mode: 'accept-edits' }).args).toContain('accept-edits');
+  });
+
+  it('keeps the prompt the trailing positional, with extra args before it', () => {
+    for (const id of AGENT_IDS) {
+      const inv = buildInvocation(id, { ...base, extraArgs: ['--dangerously-skip-permissions'] });
+      const at = inv.args.indexOf('--dangerously-skip-permissions');
+      expect(at, `${id} dropped its extra args`).toBeGreaterThan(-1);
+      expect(at, `${id} put extra args after the prompt`).toBeLessThan(inv.args.length - 1);
+      expect(inv.args.at(-1), `${id} lost the prompt`).toBe(base.prompt);
+    }
+    // agy is the picky one: its --model has to precede -p, so the escape hatch goes before both.
+    const agy = buildInvocation('agy', { ...base, extraArgs: ['--x'] }).args;
+    expect(agy.indexOf('--x')).toBeLessThan(agy.indexOf('--model'));
+  });
+
+  it('the permission note follows the mode, so a record cannot claim plan while edits are allowed', () => {
+    expect(permissionNote('claude', 'plan')).toMatch(/writes are refused/);
+    expect(permissionNote('claude', 'accept-edits')).toMatch(/acceptEdits/);
+    expect(permissionNote('agy', 'accept-edits')).toMatch(/edits auto-approved/);
+    expect(permissionNote('opencode', 'accept-edits')).toMatch(/UNRESTRICTED/);
   });
 });
 

@@ -4,11 +4,13 @@
  * the runner can be exercised (streaming, exit codes, timeout, cancel) without spending any quota and
  * without touching a network.
  *
- * Flags: --hang (never exit), --exit=<code>, --stderr-only, --model-banner=<id>
+ * Flags: --hang (never exit), --exit=<code>, --stderr-only, --blocked, --model-banner=<id>
  */
 const args = process.argv.slice(2);
 
-console.log('FAKE-ARGS:' + JSON.stringify(args));
+// A stdout-silence fixture must be silent: the marker would otherwise be captured as the answer, which is
+// exactly the condition a blocked run has to model.
+if (!args.includes('--blocked')) console.log('FAKE-ARGS:' + JSON.stringify(args));
 
 const bannerIndex = args.findIndex((a) => a.startsWith('--model-banner='));
 const bannerModel = bannerIndex >= 0 ? args[bannerIndex].split('=')[1] : 'fake-model-1';
@@ -17,7 +19,17 @@ console.error('reasoning effort: high');
 
 const eventsArg = args.find((a) => a.startsWith('--events='));
 
-if (!args.includes('--stderr-only')) {
+// --blocked models agy in headless print mode: it cannot answer a permission prompt, so it denies its own
+// tool call, prints the reason on stderr and exits 0 with an empty stdout. A blocked run that looks like a
+// silent success is the bug this fixture exists to catch.
+if (args.includes('--blocked')) {
+  console.error(
+    'jetski: no output produced — a tool required the "command" permission that headless mode cannot ' +
+      'prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json',
+  );
+}
+
+if (!args.includes('--stderr-only') && !args.includes('--blocked')) {
   console.log('line one');
   process.stdout.write('line two\n');
   // The unterminated line is only safe when nothing follows it: printing an event straight after it would

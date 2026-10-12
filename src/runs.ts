@@ -1,6 +1,9 @@
-import { AGENTS, buildInvocation, parseEvent, readModelBanner, summariseEvent, type AgentId, type Sandbox } from './agents';
+import {
+  AGENTS, buildInvocation, parseEvent, permissionNote, readModelBanner, summariseEvent,
+  type AgentId, type Sandbox,
+} from './agents';
 import { runAgent, type RunHandle, type RunOptions, type RunResult } from './runner';
-import { detectSignature, cleanStderr, type DetectedSignature } from './signatures';
+import { answerFallback, detectSignature, cleanStderr, type DetectedSignature } from './signatures';
 import {
   renderRunJson,
   renderRunLog,
@@ -20,6 +23,8 @@ export interface LiveRun {
   /** The last few stderr lines, which is where codex puts its banner and every CLI puts its errors. */
   stderrTail: string[];
   answer: string;
+  /** True when nothing came back and the answer is the CLI's own explanation instead. */
+  emptyAnswer: boolean;
   reportedModel: string;
   /** The CLI's own error line when a known failure is recognised, so the card can quote it. */
   errorSignature: DetectedSignature | null;
@@ -52,6 +57,10 @@ export interface RunManagerOptions {
   lastMessagePathFor: (runId: string) => string;
   /** Settings can point an agent at a different binary; the registry value is the fallback. */
   binaryFor?: (agent: AgentId) => string;
+  /** What the CLI may do unattended. Defaults to plan. */
+  mode?: 'plan' | 'accept-edits';
+  /** Per-agent escape hatch, appended before the prompt. */
+  extraArgsFor?: (agent: AgentId) => string[] | undefined;
   /** Reads codex's -o file, which is the reliable answer for codex. */
   readLastMessage?: (path: string) => string | null;
   now?: () => Date;
@@ -113,6 +122,7 @@ export class RunManager {
       lines: [],
       stderrTail: [],
       answer: '',
+      emptyAnswer: false,
       reportedModel: '',
       errorSignature: null,
       truncated: false,
@@ -133,6 +143,8 @@ export class RunManager {
       sandbox: this.opts.sandbox ?? 'read-only',
       maxTurns: this.opts.maxTurns ?? 1,
       lastMessageFile,
+      mode: this.opts.mode ?? 'plan',
+      extraArgs: this.opts.extraArgsFor?.(agent),
     });
 
     let parsedText = '';
@@ -184,23 +196,34 @@ export class RunManager {
           : null;
       // An event-mode CLI that produced no text event produced no answer: dumping its bookkeeping JSON as
       // the answer is how a quota block gets read as a result.
-      const answer = (fromFile ?? (parsedText.trim() || (AGENTS[agent].eventMode ? '' : fullStdout.trim()))).trim();
+      const captured = (fromFile ?? (parsedText.trim() || (AGENTS[agent].eventMode ? '' : fullStdout.trim()))).trim();
+      // A run that captured nothing is not necessarily a success: agy exits 0, prints nothing, and explains
+      // on stderr that it denied its own tool call. Take the CLI's own words rather than filing an empty
+      // answer under "done", and mark the status so the note says what happened.
+      const detected = detectSignature(fullStderr, fullStdout, fromFile ?? undefined);
+      // Only a recognised failure justifies an answer block: a bare stderr banner ("model: …", "reasoning
+      // effort: high") is not a reason, and filling the answer with it would bury the real signal.
+      const fallback = captured || !detected ? '' : answerFallback(run.stderrTail, detected);
+      const answer = captured || fallback;
 
       run.answer = answer;
+      run.emptyAnswer = !captured && fallback.length > 0;
       run.ms = result.ms;
       run.exitCode = result.exitCode;
       run.timedOut = result.timedOut;
       run.cancelled = result.cancelled;
       run.reportedModel = readModelBanner(agent, fullStderr, fullStdout);
-      run.errorSignature = detectSignature(fullStderr, fullStdout, fromFile ?? undefined);
+      run.errorSignature = detected;
       run.truncated = isProbablyTruncated(answer);
       run.status = result.cancelled
         ? 'cancelled'
         : result.timedOut
           ? 'timeout'
-          : result.exitCode === 0
-            ? 'done'
-            : 'error';
+          : run.emptyAnswer && result.exitCode === 0
+            ? 'blocked'
+            : result.exitCode === 0
+              ? 'done'
+              : 'error';
       run.finishedAt = Date.now();
 
       if (this.opts.writeLog) {
@@ -217,7 +240,7 @@ export class RunManager {
           cancelled: run.cancelled,
           truncated: run.truncated,
           cwd: this.opts.cwd,
-          permission: AGENTS[agent].permission.note,
+          permission: permissionNote(agent, this.opts.mode ?? 'plan'),
           created: localDate((this.opts.now ?? (() => new Date()))()),
         };
         try {
