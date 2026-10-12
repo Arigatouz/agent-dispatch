@@ -38,7 +38,7 @@ export function defaultSettings(vaultPath: string): DispatchSettings {
   };
 }
 
-/** Settings arrive from data.json, which Ali can hand-edit, so every field is checked on load. */
+/** Settings arrive from data.json, which a user can hand-edit, so every field is checked on load. */
 export function mergeSettings(stored: Partial<DispatchSettings> | null, vaultPath: string): DispatchSettings {
   const base = defaultSettings(vaultPath);
   if (!stored) return base;

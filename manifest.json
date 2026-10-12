@@ -6,5 +6,6 @@
   "description": "Fire prompts at local coding-agent CLIs (codex, claude, agy, opencode) and pick the model.",
   "author": "A.G.",
   "authorUrl": "https://alidevhub.com",
+  "license": "MIT",
   "isDesktopOnly": true
 }

@@ -4,3 +4,6 @@ main.js.map
 *.map
 .DS_Store
 docs/probes/
+
+# internal build notes, not published
+.internal-docs/
