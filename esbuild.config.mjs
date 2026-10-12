@@ -4,7 +4,7 @@ import { builtinModules } from 'node:module';
 
 const banner = `/*
 GENERATED/BUNDLED FILE BY ESBUILD
-source: https://github.com/arigatouez/agent-dispatch
+source: https://github.com/Arigatouz/agent-dispatch
 */
 `;
 
