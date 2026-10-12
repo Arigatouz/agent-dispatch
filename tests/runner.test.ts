@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { homedir } from 'os';
+import { join } from 'path';
 import { runAgent, DISPATCH_PATH } from '../src/runner';
 
 /** The fake CLI stands in for a real agent: no network, no quota, predictable output. */
@@ -98,6 +100,9 @@ describe('runAgent', () => {
 
   it('ships a PATH that can reach the CLIs, because Obsidian started from Finder cannot', () => {
     expect(DISPATCH_PATH).toContain('/opt/homebrew/bin');
-    expect(DISPATCH_PATH).toContain('/Users/alig/.local/bin');
+    const localBin = join(homedir(), '.local', 'bin');
+    expect(DISPATCH_PATH).toContain(localBin);
+    expect(DISPATCH_PATH).toContain('/opt/homebrew/bin');
+    expect(DISPATCH_PATH.split(':')).toEqual(expect.arrayContaining([localBin, '/usr/bin', '/bin']));
   });
 });

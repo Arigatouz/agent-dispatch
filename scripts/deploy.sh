@@ -3,7 +3,7 @@
 # plugin reload (or an app restart) is all that is needed; no build step happens here.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VAULT="${VAULT:-/Users/alig/Ali-work/Obsadian-vault/hermes-vault/Herms-vault}"
+VAULT="${VAULT:?set VAULT to the vault that should receive the plugin, e.g. VAULT=\$HOME/notes/my-vault}"
 DEST="$VAULT/.obsidian/plugins/agent-dispatch"
 
 [ -f "$ROOT/main.js" ] || { echo "main.js missing: run npm run build first" >&2; exit 1; }

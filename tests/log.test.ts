@@ -13,7 +13,8 @@ const record: RunRecord = {
   timedOut: false,
   cancelled: false,
   truncated: false,
-  cwd: '/Users/alig/Ali-work/public-projects/agent-dispatch',
+  cwd: process.cwd(),
+  permission: 'argv pins the sandbox: -s <mode>',
   created: '2026-10-04',
 };
 

@@ -9,6 +9,23 @@
 export type AgentId = 'codex' | 'claude' | 'agy' | 'opencode';
 export type Sandbox = 'read-only' | 'workspace-write';
 
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
+
+/** How a run's permissions are really constrained. Declared per agent because only some CLIs accept
+ *  a sandbox flag, so the panel must not promise read-only for an agent that cannot accept it.
+ *  Mechanisms verified against each binary's own --help on 2026-10-09. */
+export type PermissionMechanism = 'os-sandbox' | 'tool-permissions' | 'none';
+
+export interface PermissionPosture {
+  mechanism: PermissionMechanism;
+  /** True only when this agent's argv actually pins the requested sandbox. */
+  enforcesSandbox: boolean;
+  /** One line for the panel and the run record: what protects the run, or that nothing does. */
+  note: string;
+}
+
 export interface RunRequest {
   prompt: string;
   model: string;
@@ -27,6 +44,10 @@ export interface Invocation {
 export interface AgentSpec {
   id: AgentId;
   label: string;
+  /**
+   * The command name, not a path. A published plugin cannot hardcode one developer's home directory,
+   * so this stays bare and `resolveBinary()` turns it into an absolute path on the machine that runs it.
+   */
   binary: string;
   models: string[];
   defaultModel: string;
@@ -35,21 +56,57 @@ export interface AgentSpec {
   bannerPatterns: RegExp[];
   /** True when the CLI emits a machine-readable event stream, so a text-free line is bookkeeping. */
   eventMode: boolean;
+  /** What actually protects this agent's run. Surfaced in the panel and written to the run record. */
+  permission: PermissionPosture;
   build: (r: RunRequest) => string[];
 }
 
-const HOME = '/Users/alig';
+/**
+ * Where a CLI usually lives when Obsidian was started from Finder and inherited a minimal PATH.
+ * Resolution order at run time: the settings override, then PATH, then these directories.
+ */
+export const BINARY_SEARCH_DIRS = [
+  join(homedir(), '.local', 'bin'),
+  '/opt/homebrew/bin',
+  '/opt/homebrew/sbin',
+  '/usr/local/bin',
+];
+
+/** Absolute candidate paths for one agent, in search order. */
+export function candidatePaths(id: AgentId): string[] {
+  const spec = AGENTS[id];
+  if (!spec) return [];
+  return BINARY_SEARCH_DIRS.map((dir) => join(dir, spec.binary));
+}
+
+/**
+ * Absolute path to the CLI when one exists on this machine, else the bare command name and let the
+ * spawn PATH decide. Never a hardcoded path from someone else's laptop.
+ */
+export function resolveBinary(id: AgentId): string {
+  if (!AGENTS[id]) return id;
+  for (const candidate of candidatePaths(id)) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return AGENTS[id].binary;
+}
 
 export const AGENTS: Record<AgentId, AgentSpec> = {
   codex: {
     id: 'codex',
     label: 'Codex',
-    binary: '/opt/homebrew/bin/codex',
+    binary: 'codex',
     models: ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1-sol'],
     defaultModel: 'gpt-6-astra',
     tier3Models: ['gpt-6-sol', 'gpt-6.1-sol'],
     bannerPatterns: [/^\s*model:\s*([A-Za-z0-9._-]+)/m],
-    eventMode: true,
+    // Human mode on purpose. Measured 2026-10-05: `codex exec --json` emits no `model:` banner on stderr
+    // and no model field in any event (thread.started carries only a thread_id, turn.completed only
+    // usage), so JSONL mode makes the CLI-reported model unverifiable. The banner is the evidence that the
+    // requested model actually answered, so human mode wins; the prompt is still passed as one argv entry
+    // and `-o <file>` remains the answer source. Progress lines keep the panel alive while it works.
+    eventMode: false,
+    permission: { mechanism: 'os-sandbox', enforcesSandbox: true, note: 'argv pins the sandbox: -s <mode>' },
     build: (r) => [
       'exec',
       '-m', r.model,
@@ -57,22 +114,26 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
       '--skip-git-repo-check',
       '-C', r.cwd,
       '-o', r.lastMessageFile,
-      '--json',
       r.prompt,
     ],
   },
   claude: {
     id: 'claude',
     label: 'Claude Code',
-    binary: `${HOME}/.local/bin/claude`,
+    binary: 'claude',
     models: ['claude-haiku-4-5', 'claude-opus-5-5'],
     defaultModel: 'claude-haiku-4-5',
     tier3Models: ['claude-opus-5-5'],
     // stream-json puts the model in every assistant event: that is the proof, not the answer text.
     bannerPatterns: [/"model":"([A-Za-z0-9._-]+)"/],
     eventMode: true,
+    // Plan mode is the only read-only posture this CLI exposes as a single-value flag. --disallowedTools
+    // exists too but is variadic, so it is deliberately not wired until a probe proves it cannot eat the
+    // prompt that follows it.
+    permission: { mechanism: 'tool-permissions', enforcesSandbox: true, note: 'plan mode: writes are refused' },
     build: (r) => [
       '-p',
+      '--permission-mode', 'plan',
       '--model', r.model,
       '--max-turns', String(r.maxTurns),
       '--output-format', 'stream-json',
@@ -83,7 +144,7 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
   agy: {
     id: 'agy',
     label: 'Antigravity',
-    binary: `${HOME}/.local/bin/agy`,
+    binary: 'agy',
     models: [
       'gemini-3.8-flash-low',
       'gemini-3.8-flash-medium',
@@ -94,18 +155,25 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     tier3Models: ['gemini-3.1-pro-high'],
     bannerPatterns: [],
     eventMode: false,
+    // Plan mode refuses edits; --sandbox additionally restricts the terminal. Neither is an OS sandbox
+    // of codex's kind, so the mechanism is declared as tool permissions rather than overclaiming.
+    permission: { mechanism: 'tool-permissions', enforcesSandbox: true, note: 'plan mode + terminal sandbox' },
     // --model must come BEFORE -p: -p consumes the next token as its prompt.
-    build: (r) => ['--model', r.model, '-p', r.prompt],
+    build: (r) => ['--mode', 'plan', '--sandbox', '--model', r.model, '-p', r.prompt],
   },
   opencode: {
     id: 'opencode',
     label: 'OpenCode (GLM)',
-    binary: '/opt/homebrew/bin/opencode',
+    binary: 'opencode',
     models: ['opencode-go/glm-5.3', 'opencode-go/glm-5.3-flash', 'opencode-go/glm-5.2'],
     defaultModel: 'opencode-go/glm-5.3',
     tier3Models: ['opencode-go/glm-5.3'],
     bannerPatterns: [/"model":"([A-Za-z0-9._/-]+)"/],
     eventMode: true,
+    // No permission flag exists on 'run'. --agent selects a configured profile whose tool permissions are
+    // set elsewhere, and --auto is the opposite of what we want. So this agent cannot be pinned from argv
+    // and the panel must say so instead of inheriting the read-only label.
+    permission: { mechanism: 'none', enforcesSandbox: false, note: 'UNRESTRICTED: no permission flag on run; inherits its configured profile' },
     build: (r) => ['run', '--model', r.model, '--format', 'json', r.prompt],
   },
 };
@@ -115,7 +183,7 @@ export const AGENT_IDS = Object.keys(AGENTS) as AgentId[];
 export function buildInvocation(id: AgentId, r: RunRequest): Invocation {
   const spec = AGENTS[id];
   if (!spec) throw new Error(`unknown agent: ${id}`);
-  return { binary: spec.binary, args: spec.build(r), shell: false };
+  return { binary: resolveBinary(id), args: spec.build(r), shell: false };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
-import { AGENTS, AGENT_IDS, type AgentId, type Sandbox } from './agents';
+import { AGENTS, AGENT_IDS, resolveBinary, type AgentId, type Sandbox } from './agents';
 import type AgentDispatch from './main';
 
 export interface DispatchSettings {
@@ -20,7 +20,8 @@ export function defaultSettings(vaultPath: string): DispatchSettings {
   const models = {} as Record<AgentId, string[]>;
   const defaultModels = {} as Record<AgentId, string>;
   for (const id of AGENT_IDS) {
-    binaryPaths[id] = AGENTS[id].binary;
+    // A real path when the CLI is on this machine, else the bare command name; both are editable.
+    binaryPaths[id] = resolveBinary(id);
     models[id] = [...AGENTS[id].models];
     defaultModels[id] = AGENTS[id].defaultModel;
   }

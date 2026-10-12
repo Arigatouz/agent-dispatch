@@ -2,6 +2,7 @@ import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import type AgentDispatch from './main';
 import type { LiveRun } from './runs';
 import { cleanStderr } from './signatures';
+import { AGENTS } from './agents';
 
 export const VIEW_TYPE_RUN_PANEL = 'agent-dispatch-panel';
 
@@ -88,6 +89,9 @@ export class RunPanelView extends ItemView {
     } else if (run.status !== 'running') {
       meta.push('model not reported by this CLI');
     }
+    const posture = AGENTS[run.agent].permission;
+    // The dropdown is a request, not a guarantee. Say which one this agent actually honours.
+    meta.push(posture.enforcesSandbox ? `sandbox: ${posture.note}` : `\u26a0 ${posture.note}`);
     if (run.truncated) meta.push('answer may be truncated');
     card.head.createEl('span', { text: meta.join(' | '), cls: 'ad-run-meta' });
 

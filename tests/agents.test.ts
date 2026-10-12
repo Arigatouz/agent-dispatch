@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { AGENTS, buildInvocation, readModelBanner, parseEvent, summariseEvent } from '../src/agents';
+import { existsSync } from 'fs';
+import {
+  AGENTS, AGENT_IDS, buildInvocation, candidatePaths, parseEvent, readModelBanner,
+  resolveBinary, summariseEvent,
+} from '../src/agents';
 
 const base = {
   prompt: 'PROBE-77',
@@ -11,26 +15,33 @@ const base = {
 };
 
 describe('buildInvocation: one argv shape per CLI, verified against the real CLIs', () => {
-  it('codex puts the model on -m, asks for JSONL events, and the prompt last', () => {
+  it('codex puts the model on -m, stays in human mode so the banner exists, and the prompt last', () => {
     const inv = buildInvocation('codex', { ...base, model: 'gpt-6-astra' });
-    expect(inv.binary).toBe('/opt/homebrew/bin/codex');
+    // The binary is resolved on the machine that runs it: a real path when the CLI is installed,
+    // otherwise the bare command name so the spawn PATH decides. Never a hardcoded home directory.
+    expect(inv.binary === 'codex' || inv.binary.endsWith('/codex')).toBe(true);
+    // Deliberately no --json. Measured 2026-10-05: `codex exec --json` prints no `model:` banner on
+    // stderr and no model field in any event, so the CLI-reported model becomes unverifiable, and that
+    // row is the whole point of the end-to-end matrix. Human mode still prints progress lines as it
+    // works, so the panel is not silent.
     expect(inv.args).toEqual([
       'exec', '-m', 'gpt-6-astra', '-s', 'read-only', '--skip-git-repo-check',
-      '-C', '/tmp/work', '-o', '/tmp/work/last.txt', '--json', 'PROBE-77',
+      '-C', '/tmp/work', '-o', '/tmp/work/last.txt', 'PROBE-77',
     ]);
+    expect(AGENTS.codex.eventMode).toBe(false);
   });
 
   it('claude streams events and passes the prompt as the trailing positional', () => {
     const inv = buildInvocation('claude', { ...base, model: 'claude-haiku-4-5' });
     expect(inv.args).toEqual([
-      '-p', '--model', 'claude-haiku-4-5', '--max-turns', '1',
+      '-p', '--permission-mode', 'plan', '--model', 'claude-haiku-4-5', '--max-turns', '1',
       '--output-format', 'stream-json', '--verbose', 'PROBE-77',
     ]);
   });
 
   it('agy puts the model BEFORE -p, because -p eats the next token', () => {
     const inv = buildInvocation('agy', { ...base, model: 'gemini-3.8-flash-low' });
-    expect(inv.args).toEqual(['--model', 'gemini-3.8-flash-low', '-p', 'PROBE-77']);
+    expect(inv.args).toEqual(['--mode', 'plan', '--sandbox', '--model', 'gemini-3.8-flash-low', '-p', 'PROBE-77']);
     const pIndex = inv.args.indexOf('-p');
     expect(inv.args[pIndex + 1]).toBe('PROBE-77');
   });
@@ -38,6 +49,35 @@ describe('buildInvocation: one argv shape per CLI, verified against the real CLI
   it('opencode uses run --model provider/model with json events', () => {
     const inv = buildInvocation('opencode', { ...base, model: 'opencode-go/glm-5.3' });
     expect(inv.args).toEqual(['run', '--model', 'opencode-go/glm-5.3', '--format', 'json', 'PROBE-77']);
+  });
+
+  it('every agent declares a permission posture, not just the sandbox flag', () => {
+    for (const id of AGENT_IDS) {
+      const spec = AGENTS[id];
+      expect(spec.permission, `${id} has no permission posture`).toBeDefined();
+      expect(spec.permission.note.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('an agent that cannot be pinned from argv says so instead of claiming read-only', () => {
+    // opencode's `run` exposes no permission flag, so its posture must not claim enforcement.
+    const opencode = AGENTS.opencode.permission;
+    expect(opencode.enforcesSandbox).toBe(false);
+    expect(opencode.mechanism).toBe('none');
+    expect(opencode.note).toMatch(/UNRESTRICTED/);
+    const args = buildInvocation('opencode', { ...base, model: 'opencode-go/glm-5.3' }).args;
+    expect(args).not.toContain('--auto');
+  });
+
+  it('the agents that can be constrained actually carry the pin in their argv', () => {
+    expect(buildInvocation('codex', { ...base, sandbox: 'read-only' }).args).toContain('read-only');
+    expect(buildInvocation('claude', base).args).toEqual(
+      expect.arrayContaining(['--permission-mode', 'plan']),
+    );
+    expect(buildInvocation('agy', base).args).toEqual(expect.arrayContaining(['--mode', 'plan', '--sandbox']));
+    for (const id of ['codex', 'claude', 'agy'] as const) {
+      expect(AGENTS[id].permission.enforcesSandbox, `${id} claims no enforcement`).toBe(true);
+    }
   });
 
   it('never routes the prompt through a shell, even when the prompt is hostile', () => {
@@ -51,8 +91,37 @@ describe('buildInvocation: one argv shape per CLI, verified against the real CLI
       expect(spec.models.length).toBeGreaterThan(0);
       expect(spec.models).toContain(spec.defaultModel);
       expect(typeof spec.binary).toBe('string');
-      expect(spec.binary.startsWith('/')).toBe(true);
+      // Bare command name by design, so candidates can be built for whatever machine runs the plugin.
+      expect(spec.binary.includes('/')).toBe(false);
     }
+  });
+});
+
+describe('binary resolution: portable across machines', () => {
+  it('candidate paths are absolute and live in the usual bin directories', () => {
+    for (const id of AGENT_IDS) {
+      const paths = candidatePaths(id);
+      expect(paths.length).toBeGreaterThan(0);
+      for (const candidate of paths) {
+        expect(candidate.startsWith('/')).toBe(true);
+        expect(candidate.endsWith(AGENTS[id].binary)).toBe(true);
+      }
+    }
+  });
+
+  it('resolves to an absolute path when the CLI exists, else to the bare command name', () => {
+    for (const id of AGENT_IDS) {
+      const resolved = resolveBinary(id);
+      expect(typeof resolved).toBe('string');
+      const installed = candidatePaths(id).some((candidate) => existsSync(candidate));
+      if (installed) expect(resolved.startsWith('/')).toBe(true);
+      else expect(resolved).toBe(AGENTS[id].binary);
+    }
+  });
+
+  it('buildInvocation uses the resolved binary, not the registry string', () => {
+    const inv = buildInvocation('agy', { ...base, model: 'gemini-3.8-flash-low' });
+    expect(inv.binary).toBe(resolveBinary('agy'));
   });
 });
 
@@ -110,16 +179,21 @@ describe('parseEvent: text and model out of each CLI event stream', () => {
 
 describe('summariseEvent: event noise gets a label, never a JSON dump', () => {
   it('labels a bookkeeping event', () => {
-    expect(summariseEvent('codex', JSON.stringify({ type: 'thread.started', thread_id: 't1' }))).toBe('thread.started');
+    // The labeller is agent-agnostic; what eventMode controls is the gate, so exercise it through a CLI
+    // that really emits events. codex was moved to human mode on 2026-10-05.
+    expect(summariseEvent('opencode', JSON.stringify({ type: 'step_start' }))).toBe('step_start');
   });
 
   it('labels an item event with its item type', () => {
     const line = JSON.stringify({ type: 'item.completed', item: { type: 'reasoning', text: 'x' } });
-    expect(summariseEvent('codex', line)).toBe('item.completed reasoning');
+    expect(summariseEvent('opencode', line)).toBe('item.completed reasoning');
   });
 
-  it('returns null for a non-event line and for a CLI with no event mode', () => {
-    expect(summariseEvent('codex', 'plain text')).toBeNull();
+  it('returns null for a non-event line, for a human-mode CLI, and for codex', () => {
+    expect(summariseEvent('opencode', 'plain text')).toBeNull();
     expect(summariseEvent('agy', '{"type":"thread.started"}')).toBeNull();
+    // codex runs human mode: a JSON-looking line from it is an answer fragment, not an event, so the
+    // panel must show it as-is rather than inventing a label.
+    expect(summariseEvent('codex', '{"type":"item.completed"}')).toBeNull();
   });
 });

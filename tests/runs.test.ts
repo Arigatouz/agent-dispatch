@@ -100,18 +100,19 @@ describe('RunManager', () => {
     expect(result.reportedModel).toBe('claude-haiku-4-5');
   });
 
-  it('labels codex bookkeeping events instead of dumping raw JSON into the panel', async () => {
-    const { manager } = makeManager(['--events=codex']);
-    const run = manager.start('codex', 'gpt-6-astra', 'P');
+  it('parses an event-mode CLI instead of dumping raw JSON into the panel', async () => {
+    // codex is human mode as of 2026-10-05 (its CLI-reported model only exists there), so the event-mode
+    // guarantees are pinned on opencode, which really emits events.
+    const { manager } = makeManager(['--events=opencode']);
+    const run = manager.start('opencode', 'opencode-go/glm-5.3', 'P');
     const result = await run.done;
     expect(result.answer).toBe('EVENT-ANSWER.');
-    expect(run.lines).toContain('event: thread.started');
-    expect(run.lines.join('\n')).not.toContain('"thread_id"');
+    expect(run.lines.join('\n')).not.toContain('"part"');
   });
 
   it('keeps an event-mode answer empty when only bookkeeping arrives, so a quota block is not read as an answer', async () => {
     const { manager } = makeManager(['--events=none', '--exit=1']);
-    const run = manager.start('codex', 'gpt-6-astra', 'P');
+    const run = manager.start('opencode', 'opencode-go/glm-5.3', 'P');
     const result = await run.done;
     expect(result.answer).toBe('');
     expect(result.status).toBe('error');
