@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'fs';
 import {
-  AGENTS, AGENT_IDS, buildInvocation, candidatePaths, parseEvent, permissionNote, readModelBanner,
-  resolveBinary, summariseEvent,
+  AGENTS, AGENT_IDS, buildInvocation, candidatePaths, dangerousFlags, parseEvent, permissionNote,
+  readModelBanner, resolveBinary, summariseEvent,
 } from '../src/agents';
 
 const base = {
@@ -25,7 +25,7 @@ describe('buildInvocation: one argv shape per CLI, verified against the real CLI
     // row is the whole point of the end-to-end matrix. Human mode still prints progress lines as it
     // works, so the panel is not silent.
     expect(inv.args).toEqual([
-      'exec', '-m', 'gpt-6-astra', '-s', 'read-only', '--skip-git-repo-check',
+      'exec', '-m', 'gpt-6-astra', '-s', 'read-only', '-c', 'approval_policy=never', '--skip-git-repo-check',
       '-C', '/tmp/work', '-o', '/tmp/work/last.txt', 'PROBE-77',
     ]);
     expect(AGENTS.codex.eventMode).toBe(false);
@@ -122,6 +122,44 @@ describe('binary resolution: portable across machines', () => {
   it('buildInvocation uses the resolved binary, not the registry string', () => {
     const inv = buildInvocation('agy', { ...base, model: 'gemini-3.8-flash-low' });
     expect(inv.binary).toBe(resolveBinary('agy'));
+  });
+});
+
+describe('workspace mode: contained writes, no bypass flags', () => {
+  it('pins each CLI to its contained posture', () => {
+    const w = { ...base, mode: 'workspace' as const };
+    // codex: the sandbox itself is forced to the workspace, and it never waits for an approval nobody can give
+    const codex = buildInvocation('codex', w).args;
+    expect(codex).toEqual(expect.arrayContaining(['-s', 'workspace-write', '-c', 'approval_policy=never']));
+    expect(codex).not.toContain('danger-full-access');
+    // claude: edits allowed, and anything that would prompt is denied rather than hanging a headless run
+    const claude = buildInvocation('claude', w).args;
+    expect(claude).toEqual(
+      expect.arrayContaining(['--permission-mode', 'acceptEdits', '--permission-prompts', 'none']),
+    );
+    expect(claude).not.toContain('bypassPermissions');
+    // agy: edits allowed, terminal restrictions kept, because --sandbox is all the containment it has
+    const agy = buildInvocation('agy', w).args;
+    expect(agy).toEqual(expect.arrayContaining(['--mode', 'accept-edits', '--sandbox']));
+    expect(agy).not.toContain('--dangerously-skip-permissions');
+    // opencode has no scoped flag at all, so it must not silently gain one
+    expect(buildInvocation('opencode', w).args).toEqual(buildInvocation('opencode', base).args);
+  });
+
+  it('no mode ever emits a bypass flag on its own', () => {
+    for (const mode of ['plan', 'workspace', 'accept-edits'] as const) {
+      for (const id of AGENT_IDS) {
+        const args = buildInvocation(id, { ...base, mode }).args;
+        expect(dangerousFlags(args), `${id} in ${mode} emitted a bypass flag`).toEqual([]);
+      }
+    }
+  });
+
+  it('names the flags that are refused, and normalises the default to plan', () => {
+    expect(dangerousFlags(['--dangerously-skip-permissions'])).toEqual(['--dangerously-skip-permissions']);
+    expect(dangerousFlags(['-c', 'x=1'])).toEqual([]);
+    expect(buildInvocation('claude', { ...base, mode: undefined }).args).toContain('plan');
+    expect(buildInvocation('agy', { ...base, mode: undefined }).args).toContain('plan');
   });
 });
 

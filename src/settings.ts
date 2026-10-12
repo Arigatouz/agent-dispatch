@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
-import { AGENTS, AGENT_IDS, resolveBinary, type AgentId, type Sandbox } from './agents';
+import { AGENTS, AGENT_IDS, resolveBinary, type AgentId, type AgentMode, type Sandbox } from './agents';
 import type AgentDispatch from './main';
 
 export interface DispatchSettings {
@@ -8,10 +8,12 @@ export interface DispatchSettings {
   defaultModels: Record<AgentId, string>;
   sandbox: Sandbox;
   /**
-   * What claude and agy may do unattended. plan is the safe default: the CLI refuses writes and, in
-   * headless mode, denies its own tool calls. accept-edits lets them act.
+   * What the agents may do unattended. plan is read-only; workspace allows writes and commands but keeps
+   * each CLI's own containment; accept-edits flips the edit flag without forcing containment.
    */
-  mode: 'plan' | 'accept-edits';
+  mode: AgentMode;
+  /** Off by default: a bypass flag in an agent's extra args is refused until this is on. */
+  allowDangerousFlags: boolean;
   /** Per-agent extra argv, appended just before the prompt. Escape hatch for that CLI's own flags. */
   extraArgs: Record<AgentId, string>;
   timeoutSeconds: number;
@@ -38,6 +40,7 @@ export function defaultSettings(vaultPath: string): DispatchSettings {
     defaultModels,
     sandbox: 'read-only',
     mode: 'plan',
+    allowDangerousFlags: false,
     extraArgs: Object.fromEntries(AGENT_IDS.map((id) => [id, ''])) as Record<AgentId, string>,
     timeoutSeconds: 300,
     workingDirectory: vaultPath,
@@ -57,7 +60,8 @@ export function mergeSettings(stored: Partial<DispatchSettings> | null, vaultPat
   merged.defaultModels = { ...base.defaultModels, ...(stored.defaultModels ?? {}) };
   if (!Number.isFinite(merged.timeoutSeconds) || merged.timeoutSeconds < 5) merged.timeoutSeconds = 300;
   if (merged.sandbox !== 'workspace-write') merged.sandbox = 'read-only';
-  if (merged.mode !== 'accept-edits') merged.mode = 'plan';
+  if (merged.mode !== 'accept-edits' && merged.mode !== 'workspace') merged.mode = 'plan';
+  merged.allowDangerousFlags = stored.allowDangerousFlags === true;
   merged.extraArgs = { ...base.extraArgs, ...(stored.extraArgs ?? {}) };
   if (!merged.workingDirectory) merged.workingDirectory = vaultPath;
   if (!AGENT_IDS.includes(merged.lastAgent)) merged.lastAgent = 'codex';
@@ -104,6 +108,21 @@ export class AgentDispatchSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName('Allow bypass flags in extra args')
+      .setDesc(
+        'Off. While off, a run whose extra args contain a bypass flag (--dangerously-*, --yolo, --auto, ' +
+          'bypassPermissions) is refused before anything is spawned, because those flags drop the ' +
+          'guardrails rather than configure them. Turn this on only if you have decided that for a ' +
+          'specific agent.',
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.allowDangerousFlags).onChange(async (value) => {
+          this.plugin.settings.allowDangerousFlags = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
       .setName('Extra args per agent')
       .setDesc(
         'Appended just before the prompt, one flag per space. Use it for flags that CLI documents for ' +
@@ -128,17 +147,21 @@ export class AgentDispatchSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Agent mode')
       .setDesc(
-        'plan: claude runs --permission-mode plan and agy --mode plan, so they refuse writes and deny ' +
-          'their own tool calls without a terminal to ask. accept-edits: they may change files. This is ' +
-          'the switch to flip when a run comes back blocked.',
+        'plan: read-only, nothing writes (claude --permission-mode plan, agy --mode plan, codex ' +
+          '-s read-only). workspace: agents read, write and run commands inside the working directory ' +
+          'only, with each CLI still contained (codex -s workspace-write -a never, claude acceptEdits ' +
+          'with prompts denied rather than waiting, agy accept-edits inside --sandbox). accept-edits: ' +
+          'the edit flag without forcing containment. No setting here enables a bypass flag.',
       )
       .addDropdown((drop) =>
         drop
-          .addOption('plan', 'plan (safe: no writes)')
-          .addOption('accept-edits', 'accept-edits (agents may write)')
+          .addOption('plan', 'plan (no writes)')
+          .addOption('workspace', 'workspace (writes, contained)')
+          .addOption('accept-edits', 'accept-edits (writes, no containment forced)')
           .setValue(this.plugin.settings.mode)
           .onChange(async (value) => {
-            this.plugin.settings.mode = value === 'accept-edits' ? 'accept-edits' : 'plan';
+            this.plugin.settings.mode =
+              value === 'workspace' || value === 'accept-edits' ? value : 'plan';
             await this.plugin.saveSettings();
           }),
       );

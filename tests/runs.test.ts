@@ -56,10 +56,10 @@ describe('a run that captured nothing is not a success', () => {
     expect(run.answer).toContain('line one');
   });
 
-  it('passes the mode and the extra args through to the real argv', async () => {
+  it('refuses a bypass flag before spawning anything', async () => {
     const seen: string[][] = [];
-    const { manager } = makeManager([], {
-      mode: 'accept-edits',
+    const { manager, written } = makeManager([], {
+      mode: 'workspace',
       extraArgsFor: () => ['--dangerously-skip-permissions'],
       runner: (options) => {
         seen.push(options.args);
@@ -68,8 +68,44 @@ describe('a run that captured nothing is not a success', () => {
     });
     const run = manager.start('agy', 'gemini-3.8-flash-low', 'do something');
     await run.done;
-    expect(seen[0]).toContain('accept-edits');
+    expect(seen, 'the CLI was spawned despite the refusal').toEqual([]);
+    expect(run.status).toBe('error');
+    expect(run.errorSignature?.label).toBe('refused: bypass flag');
+    expect(run.answer).toContain('Run refused');
+    expect(run.answer).toContain('--dangerously-skip-permissions');
+    expect(String(written[0]?.record.answer)).toContain('Run refused');
+  });
+
+  it('lets the same flag through only when the setting says so', async () => {
+    const seen: string[][] = [];
+    const { manager } = makeManager([], {
+      mode: 'workspace',
+      allowDangerousFlags: true,
+      extraArgsFor: () => ['--dangerously-skip-permissions'],
+      runner: (options) => {
+        seen.push(options.args);
+        return runAgent({ ...options, binary: process.execPath, baseArgs: [FAKE_CLI] });
+      },
+    });
+    const run = manager.start('agy', 'gemini-3.8-flash-low', 'do something');
+    await run.done;
     expect(seen[0]).toContain('--dangerously-skip-permissions');
+    expect(seen[0]).toContain('accept-edits');
+  });
+
+  it('passes the mode through to the real argv', async () => {
+    const seen: string[][] = [];
+    const { manager } = makeManager([], {
+      mode: 'workspace',
+      extraArgsFor: () => [],
+      runner: (options) => {
+        seen.push(options.args);
+        return runAgent({ ...options, binary: process.execPath, baseArgs: [FAKE_CLI] });
+      },
+    });
+    const run = manager.start('codex', 'gpt-6-astra', 'do something');
+    await run.done;
+    expect(seen[0]).toEqual(expect.arrayContaining(['-s', 'workspace-write', '-c', 'approval_policy=never']));
   });
 });
 

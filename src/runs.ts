@@ -1,6 +1,6 @@
 import {
-  AGENTS, buildInvocation, parseEvent, permissionNote, readModelBanner, summariseEvent,
-  type AgentId, type Sandbox,
+  AGENTS, buildInvocation, dangerousFlags, parseEvent, permissionNote, readModelBanner, summariseEvent,
+  type AgentId, type AgentMode, type Sandbox,
 } from './agents';
 import { runAgent, type RunHandle, type RunOptions, type RunResult } from './runner';
 import { answerFallback, detectSignature, cleanStderr, type DetectedSignature } from './signatures';
@@ -58,7 +58,9 @@ export interface RunManagerOptions {
   /** Settings can point an agent at a different binary; the registry value is the fallback. */
   binaryFor?: (agent: AgentId) => string;
   /** What the CLI may do unattended. Defaults to plan. */
-  mode?: 'plan' | 'accept-edits';
+  mode?: AgentMode;
+  /** Off unless the user said otherwise: a bypass flag in extra args refuses the run. */
+  allowDangerousFlags?: boolean;
   /** Per-agent escape hatch, appended before the prompt. */
   extraArgsFor?: (agent: AgentId) => string[] | undefined;
   /** Reads codex's -o file, which is the reliable answer for codex. */
@@ -136,6 +138,55 @@ export class RunManager {
     };
 
     const lastMessageFile = this.opts.lastMessagePathFor(id);
+    const extraArgs = this.opts.extraArgsFor?.(agent);
+    // Refuse before spawning. A bypass flag removes the guardrails instead of configuring them, so it is
+    // an explicit decision; the run is closed with the reason rather than quietly obeyed.
+    const bypass = dangerousFlags(extraArgs);
+    if (bypass.length > 0 && this.opts.allowDangerousFlags !== true) {
+      run.status = 'error';
+      run.finishedAt = Date.now();
+      run.errorSignature = {
+        label: 'refused: bypass flag',
+        action:
+          'These flags drop the guardrails rather than configure them. Use Agent mode = workspace for ' +
+          'contained writes, or turn on Allow bypass flags in settings if you have decided that for this ' +
+          'agent.',
+        evidence: bypass.join(' '),
+      };
+      run.answer =
+        `> **Run refused: ${bypass.join(' ')}**. Bypass flags are refused by default. ` +
+        'Agent mode = workspace gives an agent writes and commands inside the working directory while ' +
+        'keeping each CLI\'s own containment.';
+      run.done = (async () => {
+        if (this.opts.writeLog) {
+          const record: RunRecord = {
+            agent,
+            model: run.model,
+            reportedModel: '',
+            prompt,
+            answer: run.answer,
+            status: run.status,
+            ms: 0,
+            exitCode: null,
+            timedOut: false,
+            cancelled: false,
+            truncated: false,
+            cwd: this.opts.cwd,
+            permission: permissionNote(agent, this.opts.mode ?? 'plan'),
+            created: localDate((this.opts.now ?? (() => new Date()))()),
+          };
+          try {
+            await this.opts.writeLog(record, renderRunJson(record));
+          } catch (error) {
+            run.stderrTail.push(`log write failed: ${(error as Error).message}`);
+          }
+        }
+        this.emit('finish', run);
+        return run;
+      })();
+      return run;
+    }
+
     const { binary, args } = buildInvocation(agent, {
       prompt,
       model: run.model,
@@ -144,7 +195,7 @@ export class RunManager {
       maxTurns: this.opts.maxTurns ?? 1,
       lastMessageFile,
       mode: this.opts.mode ?? 'plan',
-      extraArgs: this.opts.extraArgsFor?.(agent),
+      extraArgs,
     });
 
     let parsedText = '';
@@ -276,7 +327,7 @@ export class RunManager {
       cancelled: run.cancelled,
       truncated: run.truncated,
       cwd: this.opts.cwd,
-      permission: AGENTS[run.agent].permission.note,
+      permission: permissionNote(run.agent, this.opts.mode ?? 'plan'),
       created: localDate((this.opts.now ?? (() => new Date()))()),
     });
   }

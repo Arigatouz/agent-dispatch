@@ -26,6 +26,23 @@ export interface PermissionPosture {
   note: string;
 }
 
+/** What an agent may do unattended. plan refuses writes; workspace allows them but keeps the CLI's own
+ *  containment (codex's sandbox, agy's terminal sandbox); accept-edits only flips the CLI's edit mode. */
+export type AgentMode = 'plan' | 'workspace' | 'accept-edits';
+
+/** Flags that remove the guardrails. Refused at run time unless settings explicitly allow them, so a
+ *  bypass flag cannot arrive by copy-paste accident or from a stale note. */
+export const DANGEROUS_FLAGS: RegExp[] = [
+  /^--dangerously-/,
+  /^--yolo$/,
+  /^--auto$/,
+  /^--permission-mode=bypassPermissions$/,
+];
+
+export function dangerousFlags(args: string[] | undefined): string[] {
+  return (args ?? []).filter((arg) => DANGEROUS_FLAGS.some((pattern) => pattern.test(arg)));
+}
+
 export interface RunRequest {
   prompt: string;
   model: string;
@@ -34,7 +51,7 @@ export interface RunRequest {
   maxTurns: number;
   lastMessageFile: string;
   /** What the CLI is allowed to do unattended. Defaults to plan, which is the safe posture. */
-  mode?: 'plan' | 'accept-edits';
+  mode?: AgentMode;
   /** Escape hatch, appended before the prompt: whatever that CLI documents for unattended runs. */
   extraArgs?: string[];
 }
@@ -114,7 +131,12 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     build: (r) => [
       'exec',
       '-m', r.model,
-      '-s', r.sandbox,
+      // workspace mode pins the contained sandbox itself: a run may write, but only inside the workspace.
+      '-s', (r.mode ?? 'plan') === 'workspace' ? 'workspace-write' : r.sandbox,
+      // Headless has nobody to ask, so a pending approval is a stall or a denial: never ask, always decide.
+      // Measured 2026-10-12: `codex exec` rejects -a/--ask-for-approval ("unexpected argument '-a'", exit 2);
+      // that flag lives on the top-level `codex` only, so the policy goes in as a config override.
+      '-c', 'approval_policy=never',
       '--skip-git-repo-check',
       '-C', r.cwd,
       '-o', r.lastMessageFile,
@@ -138,7 +160,9 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     permission: { mechanism: 'tool-permissions', enforcesSandbox: true, note: 'plan mode: writes are refused' },
     build: (r) => [
       '-p',
-      '--permission-mode', r.mode === 'accept-edits' ? 'acceptEdits' : 'plan',
+      '--permission-mode', (r.mode ?? 'plan') === 'plan' ? 'plan' : 'acceptEdits',
+      // In print mode the host is nobody, so anything that would prompt is denied instead of hanging.
+      ...((r.mode ?? 'plan') === 'workspace' ? ['--permission-prompts', 'none'] : []),
       '--model', r.model,
       '--max-turns', String(r.maxTurns),
       '--output-format', 'stream-json',
@@ -166,7 +190,8 @@ export const AGENTS: Record<AgentId, AgentSpec> = {
     permission: { mechanism: 'tool-permissions', enforcesSandbox: true, note: 'plan mode + terminal sandbox' },
     // --model must come BEFORE -p: -p consumes the next token as its prompt.
     build: (r) => [
-      '--mode', r.mode === 'accept-edits' ? 'accept-edits' : 'plan',
+      '--mode', (r.mode ?? 'plan') === 'plan' ? 'plan' : 'accept-edits',
+      // Kept in workspace mode on purpose: this CLI's terminal restrictions are the only containment it has.
       '--sandbox',
       ...(r.extraArgs ?? []),
       '--model', r.model,
@@ -196,18 +221,25 @@ export const AGENT_IDS = Object.keys(AGENTS) as AgentId[];
  * What actually protects a run, for the card and the note. The posture depends on the mode, so a note
  * that says "plan mode: writes are refused" while the run could edit files would be a lie.
  */
-export function permissionNote(id: AgentId, mode: 'plan' | 'accept-edits' = 'plan'): string {
+export function permissionNote(id: AgentId, mode: AgentMode = 'plan'): string {
   const spec = AGENTS[id];
   if (!spec || spec.permission.mechanism === 'none') return spec ? spec.permission.note : '';
   if (id === 'claude') {
-    return mode === 'accept-edits'
-      ? 'acceptEdits: file edits auto-approved, commands still gated'
-      : 'plan mode: writes are refused';
+    if (mode === 'plan') return 'plan mode: writes are refused';
+    return mode === 'workspace'
+      ? 'acceptEdits + prompts denied: contained, nothing can ask'
+      : 'acceptEdits: file edits auto-approved, commands still gated';
   }
   if (id === 'agy') {
-    return mode === 'accept-edits'
-      ? 'accept-edits + terminal sandbox: edits auto-approved'
-      : 'plan mode + terminal sandbox';
+    if (mode === 'plan') return 'plan mode + terminal sandbox';
+    return mode === 'workspace'
+      ? 'accept-edits inside --sandbox: edits auto-approved, terminal restricted'
+      : 'accept-edits + terminal sandbox: edits auto-approved';
+  }
+  if (id === 'codex' && mode !== 'accept-edits') {
+    return mode === 'workspace'
+      ? '-s workspace-write: writes contained to the workspace, approvals never asked'
+      : '-s read-only: argv pins the sandbox';
   }
   return spec.permission.note;
 }

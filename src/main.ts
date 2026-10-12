@@ -29,6 +29,7 @@ export default class AgentDispatch extends Plugin {
       timeoutMs: this.settings.timeoutSeconds * 1000,
       sandbox: this.settings.sandbox,
       mode: this.settings.mode,
+      allowDangerousFlags: this.settings.allowDangerousFlags,
       extraArgsFor: (agent: AgentId) => splitExtraArgs(this.settings.extraArgs[agent]),
       binaryFor: (agent: AgentId) => this.settings.binaryPaths[agent] ?? resolveBinary(agent),
       lastMessagePathFor: (id) => join(this.pluginDir(), 'runs', `last-${id}.txt`),
